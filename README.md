@@ -50,33 +50,28 @@ Claude VPN Guard implements **3 layers of defense** directly in the Windows kern
 
 ---
 
-## 🚀 Quick Start (Installation in 2 Minutes)
+## 🚀 Quick Start (Installation in 1 Minute)
 
-### Step 1: Download
-* **Option 1 (Easiest):** Download the latest **`claude-vpn-guard-windows.zip`** from [Releases](https://github.com/gruskry/claude-vpn-guard/releases/latest) and extract it anywhere (e.g. `C:\claude-vpn-guard` or `E:\claude-tools`).
-* **Option 2 (Git):**
-  ```bash
-  git clone https://github.com/gruskry/claude-vpn-guard.git
-  cd claude-vpn-guard
-  ```
+### Option 1: Automatic Installation (Recommended)
+1. Download **`ClaudeVPNGuard_Installer.exe`** from [Releases](https://github.com/gruskry/claude-vpn-guard/releases/latest).
+2. Run the installer (it will request Administrator privileges).
+3. The installer automatically:
+   - Configures Windows Defender Firewall rules for all physical adapters.
+   - Installs the background Guard app.
+   - Creates a beautiful desktop shortcut.
 
-### Step 2: Activate Kernel Firewall Protection (1 Click)
-1. Right-click **`setup-firewall.cmd`** and select **Run as Administrator** (or double-click and accept UAC).
-2. The script will automatically:
-   - Detect your physical network cards (Ethernet / Wi-Fi).
-   - Scan your system for all Claude Desktop and Claude Code CLI executables.
-   - Register outbound block rules in Windows Defender Firewall.
-3. You will see a green confirmation: `SUCCESS! Created X firewall rule(s)`.
+> **That's it!** You can now launch Claude through the new desktop shortcut. Even if your VPN crashes, your home internet cannot leak to Claude.
 
-> **That's it!** Even if your VPN crashes, your home internet cannot leak to Claude.
-
-### Step 3: (Optional) Create Desktop Shortcut
-Double-click **`create-desktop-shortcut.cmd`** to place a beautiful launch shortcut with the official Claude icon right onto your Windows Desktop.
+### Option 2: Manual Installation / Portable
+If you prefer not to use the installer:
+1. Download `claude-vpn-guard-windows.zip` from Releases and extract it.
+2. Run `setup-firewall.cmd` as Administrator to block Claude on physical adapters.
+3. Use the `Claude (VPN Guard).exe` or `create-desktop-shortcut.cmd` manually.
 
 ---
 
-### Option B: DNS Leak Protection (DoH)
-Included is a script to enable DNS-over-HTTPS (DoH) globally for physical network adapters, preventing your home ISP from seeing your DNS queries to Anthropic.
+### DNS Leak Protection (DoH)
+Included is an optional script to enable DNS-over-HTTPS (DoH) globally for physical network adapters, preventing your home ISP from seeing your DNS queries to Anthropic.
 1. Run **`enable-dns-leak-protection.cmd`** as Administrator.
 2. It secures `1.1.1.1` and `8.8.8.8` DNS queries via DoH.
 
@@ -126,9 +121,8 @@ Or simply run `claude` in your regular terminal! The Windows Firewall rules crea
 ---
 
 ## 🗑️ How to Uninstall
-If you ever want to remove all firewall rules:
-* Double-click **`remove-firewall.cmd`** (Run as Administrator).
-* All rules prefixed with `Claude-VPN-Guard-Block` will be deleted instantly.
+* **If you used the Installer:** Go to Windows Settings -> Apps -> Installed Apps (or Control Panel), find **Claude VPN Guard**, and click Uninstall. This cleanly removes all files and firewall rules automatically.
+* **If you installed manually:** Run `remove-firewall.cmd` as Administrator, then delete the folder.
 
 ---
 
