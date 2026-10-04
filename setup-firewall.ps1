@@ -43,6 +43,11 @@ if ($Uninstall) {
 
 # Enable dropped connections logging in Windows Defender Firewall
 netsh advfirewall set allprofiles logging droppedconnections enable | Out-Null
+$logPath = "$env:systemroot\System32\LogFiles\Firewall\pfirewall.log"
+if (Test-Path $logPath) {
+    # Grant built-in Users group (S-1-5-32-545) Read access so our non-admin tray app can show notifications
+    icacls $logPath /grant "*S-1-5-32-545:R" | Out-Null
+}
 
 # 3. Discover Physical Network Adapters (Ethernet / Wi-Fi)
 Write-Host "`n[2/3] Detecting physical network interfaces..." -ForegroundColor Gray

@@ -28,10 +28,7 @@ Name: "{group}\Claude (VPN Guard)"; Filename: "{app}\Claude (VPN Guard).exe"
 Name: "{group}\Uninstall Claude VPN Guard"; Filename: "{uninstallexe}"
 
 [Registry]
-; Intercept claude:// URL Scheme
-Root: HKCR; Subkey: "claude"; ValueType: string; ValueName: ""; ValueData: "URL:Claude Protocol"; Flags: uninsdeletekey
-Root: HKCR; Subkey: "claude"; ValueType: string; ValueName: "URL Protocol"; ValueData: ""; Flags: uninsdeletekey
-Root: HKCR; Subkey: "claude\shell\open\command"; ValueType: string; ValueName: ""; ValueData: """{app}\Claude (VPN Guard).exe"" ""%1"""; Flags: uninsdeletekey
+; Removed URL hijack to prevent infinite loops and Store App activation issues
 
 [Run]
 ; Run firewall setup script silently after installation
