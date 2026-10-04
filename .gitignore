@@ -10,3 +10,7 @@ __pycache__/
 # Windows
 Thumbs.db
 Desktop.ini
+
+# Generated release downloads (the launcher EXE remains tracked)
+/Output/
+/claude-vpn-guard-windows.zip

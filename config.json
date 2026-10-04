@@ -1,5 +1,5 @@
 {
     "target_timezone": "Georgian Standard Time",
     "auto_detect": true,
-    "notify_on_block": true
+    "change_timezone": true
 }

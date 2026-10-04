@@ -1,6 +1,6 @@
 [Setup]
 AppName=Claude VPN Guard
-AppVersion=1.2.0
+AppVersion=1.3.1
 AppPublisher=Dzmitry Danilau (gruskry)
 AppPublisherURL=https://github.com/gruskry/claude-vpn-guard
 DefaultDirName={autopf}\Claude VPN Guard
@@ -9,7 +9,9 @@ OutputBaseFilename=ClaudeVPNGuard_Installer
 Compression=lzma2/ultra64
 SolidCompression=yes
 ArchitecturesInstallIn64BitMode=x64
+ArchitecturesAllowed=x64compatible
 PrivilegesRequired=admin
+AppMutex=Global\ClaudeVPNGuard_LaunchSession
 SetupIconFile=assets\claude.ico
 UninstallDisplayIcon={app}\Claude (VPN Guard).exe
 
@@ -17,6 +19,16 @@ UninstallDisplayIcon={app}\Claude (VPN Guard).exe
 Source: "Claude (VPN Guard).exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "config.json"; DestDir: "{app}"; Flags: ignoreversion
 Source: "setup-firewall.ps1"; DestDir: "{app}"; Flags: ignoreversion
+Source: "guard-common.ps1"; DestDir: "{app}"; Flags: ignoreversion
+Source: "guard-runtime.ps1"; DestDir: "{app}"; Flags: ignoreversion
+Source: "check-protection.ps1"; DestDir: "{app}"; Flags: ignoreversion
+Source: "sync-guard.ps1"; DestDir: "{app}"; Flags: ignoreversion
+Source: "launch-cli.ps1"; DestDir: "{app}"; Flags: ignoreversion
+Source: "launch-guarded.cmd"; DestDir: "{app}"; Flags: ignoreversion
+Source: "launch-cli-guarded.cmd"; DestDir: "{app}"; Flags: ignoreversion
+Source: "setup-firewall.cmd"; DestDir: "{app}"; Flags: ignoreversion
+Source: "restore-dns.cmd"; DestDir: "{app}"; Flags: ignoreversion
+Source: "README.md"; DestDir: "{app}"; Flags: ignoreversion
 Source: "remove-firewall.cmd"; DestDir: "{app}"; Flags: ignoreversion
 Source: "enable-dns-leak-protection.cmd"; DestDir: "{app}"; Flags: ignoreversion
 Source: "enable-dns-leak-protection.ps1"; DestDir: "{app}"; Flags: ignoreversion
@@ -25,15 +37,44 @@ Source: "assets\*"; DestDir: "{app}\assets"; Flags: ignoreversion recursesubdirs
 [Icons]
 Name: "{autodesktop}\Claude (VPN Guard)"; Filename: "{app}\Claude (VPN Guard).exe"; IconFilename: "{app}\assets\claude.ico"
 Name: "{group}\Claude (VPN Guard)"; Filename: "{app}\Claude (VPN Guard).exe"
+Name: "{group}\Claude Code (VPN Guard)"; Filename: "{app}\launch-cli-guarded.cmd"
 Name: "{group}\Uninstall Claude VPN Guard"; Filename: "{uninstallexe}"
 
 [Registry]
 ; Removed URL hijack to prevent infinite loops and Store App activation issues
 
-[Run]
-; Run firewall setup script silently after installation
-Filename: "powershell.exe"; Parameters: "-ExecutionPolicy Bypass -WindowStyle Hidden -File ""{app}\setup-firewall.ps1"""; StatusMsg: "Configuring Windows Defender Firewall..."; Flags: runhidden waituntilterminated
+[Code]
+function RunGuardScript(Path, Extra: String; var ResultCode: Integer): Boolean;
+begin
+  Result := Exec(ExpandConstant('{sys}\WindowsPowerShell\v1.0\powershell.exe'),
+    '-NoProfile -NonInteractive -ExecutionPolicy Bypass -File "' + Path + '" -NonInteractive ' + Extra,
+    '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+end;
 
-[UninstallRun]
-; Remove firewall rules during uninstallation
-Filename: "{app}\remove-firewall.cmd"; Flags: runhidden waituntilterminated
+function PrepareToInstall(var NeedsRestart: Boolean): String;
+var
+  ResultCode: Integer;
+begin
+  ExtractTemporaryFile('guard-common.ps1');
+  ExtractTemporaryFile('setup-firewall.ps1');
+  if not RunGuardScript(ExpandConstant('{tmp}\setup-firewall.ps1'), '', ResultCode) then
+    Result := 'Could not start firewall setup. Installation has not proceeded.'
+  else if ResultCode <> 0 then
+    Result := 'Firewall setup failed (code ' + IntToStr(ResultCode) + '). Install Claude first, enable Windows Firewall and run setup-firewall.cmd to see details.'
+  else
+    Result := '';
+end;
+
+function InitializeUninstall(): Boolean;
+var
+  ResultCode: Integer;
+begin
+  Result := RunGuardScript(ExpandConstant('{app}\setup-firewall.ps1'), '-Uninstall', ResultCode);
+  Result := Result and (ResultCode = 0);
+  if not Result then
+  begin
+    Log('Guard restoration/removal failed. Files and recovery state were retained.');
+    if not UninstallSilent then
+      MsgBox('Could not restore DNS or remove firewall rules. Close Claude, run remove-firewall.cmd from the installation folder and retry. Recovery files were retained.', mbError, MB_OK);
+  end;
+end;

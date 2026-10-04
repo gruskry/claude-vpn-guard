@@ -1,202 +1,63 @@
 #Requires -Version 5.1
-<#
-.SYNOPSIS
-    Universal Windows Defender Firewall Kill-Switch for Claude Desktop & Claude Code CLI.
-.DESCRIPTION
-    Blocks all outbound traffic for Claude executables on physical hardware interfaces (LAN/Wi-Fi),
-    ensuring all Claude traffic is forced through virtual VPN adapters (WireGuard, OpenVPN, Outline,
-    Amnezia, Tailscale, Proton, etc.). Zero packet leaks if VPN drops.
-#>
-param(
-    [switch]$Uninstall
-)
-
-# 1. Administrator Privilege Check & Auto-Elevation
-$isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
-if (-not $isAdmin) {
-    Write-Host "Requesting Administrator privileges (UAC)..." -ForegroundColor Yellow
-    $argList = "-NoProfile -ExecutionPolicy Bypass -File `"$PSCommandPath`""
-    if ($Uninstall) { $argList += " -Uninstall" }
-    Start-Process powershell.exe -Verb RunAs -ArgumentList $argList
-    exit
+param([switch]$Uninstall, [switch]$NonInteractive)
+. "$PSScriptRoot\guard-common.ps1"
+function Restore-GuardDnsConfiguration {
+    $shell=Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
+    $arguments="-NoProfile -NonInteractive -ExecutionPolicy Bypass -File `"$PSScriptRoot\enable-dns-leak-protection.ps1`" -Restore -NonInteractive"
+    $process=Start-Process -FilePath $shell -ArgumentList $arguments -Wait -PassThru -WindowStyle Hidden -ErrorAction Stop
+    if ($process.ExitCode -ne 0) { throw 'DNS restore failed. Firewall rules were retained; retry removal.' }
 }
-
-[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
-
-Write-Host "==========================================================" -ForegroundColor Cyan
-Write-Host "    Claude VPN Guard: Windows Firewall Kill-Switch Setup  " -ForegroundColor Cyan
-Write-Host "==========================================================" -ForegroundColor Cyan
-
-$RulePrefix = "Claude-VPN-Guard-Block"
-
-
-
-if ($Uninstall) {
-    Write-Host "`nAll Claude firewall block rules have been removed!" -ForegroundColor Green
-    Write-Host "Claude can now use any network interface directly." -ForegroundColor Gray
-    Write-Host "`nPress any key to exit..."
-    $null = [Console]::ReadKey($true)
-    exit
-}
-
-# Enable dropped connections logging in Windows Defender Firewall
-netsh advfirewall set allprofiles logging droppedconnections enable | Out-Null
-$logPath = "$env:systemroot\System32\LogFiles\Firewall\pfirewall.log"
-if (Test-Path $logPath) {
-    # Grant built-in Users group (S-1-5-32-545) Read access so our non-admin tray app can show notifications
-    icacls $logPath /grant "*S-1-5-32-545:R" | Out-Null
-}
-
-# 3. Discover Physical Network Adapters (Ethernet / Wi-Fi)
-Write-Host "`n[2/3] Detecting physical network interfaces..." -ForegroundColor Gray
-$physicalAdapters = Get-NetAdapter -ErrorAction SilentlyContinue | Where-Object { 
-    $_.HardwareInterface -eq $true -and 
-    $_.InterfaceDescription -notmatch "Virtual|Hyper-V|Bluetooth|WireGuard|Wintun|TAP-|Tunnel|VPN|Miniport"
-}
-
-if (-not $physicalAdapters) {
-    Write-Warning "No physical network adapters found automatically. Please check network adapters in Device Manager."
-    Write-Host "`nPress any key to exit..."
-    $null = [Console]::ReadKey($true)
-    exit
-}
-
-Write-Host "Physical adapters to block for Claude (leak prevention):" -ForegroundColor Yellow
-foreach ($adapter in $physicalAdapters) {
-    Write-Host "  -> [$($adapter.Name)] ($($adapter.InterfaceDescription))" -ForegroundColor Cyan
-}
-
-# 4. Discover all Claude Desktop and Claude Code CLI executables
-Write-Host "`n[3/3] Scanning system for Claude executables..." -ForegroundColor Gray
-$discoveredExes = [System.Collections.Generic.List[string]]::new()
-
-# A. WindowsApps (MSIX / Store installation)
-$windowsAppsFolders = Get-ChildItem "C:\Program Files\WindowsApps" -Filter "*Claude*" -Directory -ErrorAction SilentlyContinue
-foreach ($dir in $windowsAppsFolders) {
-    $exes = Get-ChildItem $dir.FullName -Filter "*.exe" -Recurse -ErrorAction SilentlyContinue | Select-Object -ExpandProperty FullName
-    if ($exes) { $discoveredExes.AddRange([string[]]$exes) }
-}
-
-# B. Standard User Installations (Squirrel / LocalAppData)
-$standardPaths = @(
-    "$env:LOCALAPPDATA\Programs\Claude\Claude.exe",
-    "$env:LOCALAPPDATA\Claude\app-*\Claude.exe",
-    "$env:APPDATA\Claude\Claude.exe"
-)
-foreach ($pattern in $standardPaths) {
-    $matches = Resolve-Path $pattern -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Path
-    if ($matches) { $discoveredExes.AddRange([string[]]$matches) }
-}
-
-# C. Claude Code CLI (Roaming / Local AppData / npm)
-$cliPatterns = @(
-    "$env:APPDATA\Claude\claude-code\*\claude.exe",
-    "$env:LOCALAPPDATA\Claude-3p\claude-code\*\claude.exe",
-    "$env:APPDATA\npm\claude.cmd",
-    "$env:APPDATA\npm\node_modules\@anthropic-ai\claude-code\*.exe"
-)
-foreach ($pattern in $cliPatterns) {
-    $matches = Resolve-Path $pattern -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Path
-    if ($matches) { $discoveredExes.AddRange([string[]]$matches) }
-}
-
-# D. Check PATH for claude command
-$cmdExe = (Get-Command claude.exe -ErrorAction SilentlyContinue).Source
-if ($cmdExe) { $discoveredExes.Add($cmdExe) }
-
-# Deduplicate and filter existing paths
-$allExePaths = $discoveredExes | Select-Object -Unique | Where-Object { 
-    (Test-Path $_ -PathType Leaf) -and ($_ -match "\.exe$")
-}
-
-if ($allExePaths.Count -eq 0) {
-    Write-Warning "Could not find any Claude executables. If Claude is installed in a custom location, add its path to this script."
-    Write-Host "`nPress any key to exit..."
-    $null = [Console]::ReadKey($true)
-    exit
-}
-
-Write-Host "Found $($allExePaths.Count) Claude executable(s):" -ForegroundColor Yellow
-foreach ($p in $allExePaths) {
-    Write-Host "  -> $(Split-Path $p -Leaf) ($p)" -ForegroundColor Gray
-}
-
-# 5. Create Windows Firewall Outbound Block Rules
-Write-Host "`nRemoving previous firewall rules before applying new ones..." -ForegroundColor Gray
-Get-NetFirewallRule -Name "$RulePrefix*" -ErrorAction SilentlyContinue | Remove-NetFirewallRule -ErrorAction SilentlyContinue
-
-Write-Host "`nApplying Outbound Block rules in Windows Defender Firewall..." -ForegroundColor Yellow
-
-$ruleCount = 0
-foreach ($adapter in $physicalAdapters) {
-    $tag = if ($adapter.Name -eq "Ethernet") { "LAN" } elseif ($adapter.Name -match "Wi-Fi|Беспроводн|Wireless") { "WiFi" } else { "Adapter" }
-    $tag = "$tag-$($adapter.InterfaceIndex)"
-    
-    # A. Add Package-based rule (Immunity to Claude updates)
-    $packageFamilyName = "Claude_pzs8sxrjxfjjc"
-    $ruleNamePkg = "$RulePrefix-$tag-Pkg"
-    $displayNamePkg = "Claude Guard - Block [$($adapter.Name)] (App Package)"
-    
+function Invoke-GuardFirewallSetup([switch]$Uninstall) {
+    if ($Uninstall) {
+        Restore-GuardDnsConfiguration
+        $rules = @(Get-GuardRules)
+        foreach ($rule in $rules) { $rule | Remove-NetFirewallRule -ErrorAction Stop }
+        if (@(Get-GuardRules).Count) { throw 'Some Guard firewall rules remain. Retry removal.' }
+        $path = Get-GuardStatePath
+        if (Test-Path -LiteralPath $path) { Remove-Item -LiteralPath $path -Force -ErrorAction Stop }
+        Write-Host 'Claude Guard rules removed; any saved DNS recovery state was processed.'
+        return
+    }
+    Assert-GuardProfiles
+    $adapters = @(Get-GuardAdapters)
+    if (-not $adapters.Count) { throw 'No physical adapters found. No rules were changed.' }
+    $inventory = Get-GuardInventory
+    if (-not @($inventory.Programs).Count) { throw 'No native Claude executables found. No rules were changed.' }
+    $specifications = @(Get-GuardSpecifications $inventory $adapters)
+    $oldRules = @(Get-GuardRules)
+    $generation = [guid]::NewGuid().ToString('N')
+    $newNames = New-Object 'System.Collections.Generic.List[string]'
     try {
-        New-NetFirewallRule -Name $ruleNamePkg `
-                            -DisplayName $displayNamePkg `
-                            -Description "Claude Kill-Switch: blocks App Package $packageFamilyName on $($adapter.Name) (survives updates)." `
-                            -Direction Outbound `
-                            -Action Block `
-                            -Package $packageFamilyName `
-                            -InterfaceAlias $adapter.Name `
-                            -Enabled True `
-                            -ErrorAction Stop | Out-Null
-        
-        Write-Host "  [OK] Blocked [$($adapter.Name)] for App Package: $packageFamilyName" -ForegroundColor Green
-        $ruleCount++
-    } catch {
-        Write-Host "  [ERROR] Failed to create App Package rule on [$($adapter.Name)]: $_" -ForegroundColor Red
-    }
-
-    $idx = 1
-    # B. Add executable-based rules for standalone/CLI installs
-    foreach ($exe in $allExePaths) {
-        $exeLeaf = Split-Path $exe -Leaf
-        $ruleName = "$RulePrefix-$tag-Exe$idx"
-        $displayName = "Claude Guard - Block [$($adapter.Name)] ($exeLeaf #$idx)"
-        
-        try {
-            New-NetFirewallRule -Name $ruleName `
-                                -DisplayName $displayName `
-                                -Description "Claude Kill-Switch: blocks $exeLeaf on $($adapter.Name) (prevents IP leakage outside VPN)." `
-                                -Direction Outbound `
-                                -Action Block `
-                                -Program $exe `
-                                -InterfaceAlias $adapter.Name `
-                                -Enabled True `
-                                -ErrorAction Stop | Out-Null
-            
-            Write-Host "  [OK] Blocked [$($adapter.Name)] for Exe: $exeLeaf" -ForegroundColor Green
-            $ruleCount++
-            $idx++
-        } catch {
-            Write-Host "  [ERROR] Failed to create rule for $exeLeaf on [$($adapter.Name)]: $_" -ForegroundColor Red
+        foreach ($specification in $specifications) {
+            $name = "$script:GuardRulePrefix-$generation-$($newNames.Count)"
+            $newNames.Add($name)
+            $parameters = @{ Name=$name; DisplayName="Claude Guard: block on $($specification.Alias)"; Direction='Outbound'; Action='Block'; Profile='Any'; InterfaceAlias=$specification.Alias; Enabled='True'; PolicyStore='PersistentStore'; ErrorAction='Stop' }
+            if ($specification.Program) { $parameters.Program=$specification.Program } else { $parameters.Package=$specification.Package }
+            New-NetFirewallRule @parameters | Out-Null
         }
+        Assert-GuardCoverage $specifications $newNames.ToArray()
+        Save-GuardFirewallState ([pscustomobject]@{ Version=1; Rules=$newNames.ToArray(); Adapters=@($adapters | ForEach-Object { [pscustomobject]@{ Guid="$($_.InterfaceGuid)"; Alias=$_.Name } }) })
+    } catch {
+        $failure = $_
+        foreach ($name in $newNames) { Get-NetFirewallRule -Name $name -ErrorAction SilentlyContinue | Remove-NetFirewallRule -ErrorAction SilentlyContinue }
+        throw "Setup failed; previous rules retained. $failure"
     }
+    foreach ($rule in $oldRules) { $rule | Remove-NetFirewallRule -ErrorAction Stop }
+    Write-Host "Verified $($newNames.Count) block rules. Re-run setup after adapter or Claude installation changes."
 }
-
-$expectedCount = $physicalAdapters.Count * (1 + $allExePaths.Count)
-
-Write-Host "`n" + ("=" * 58) -ForegroundColor Cyan
-if ($ruleCount -eq $expectedCount -and $expectedCount -gt 0) {
-    Write-Host " SUCCESS! Created $ruleCount firewall rule(s)." -ForegroundColor Green -BackgroundColor Black
-    Write-Host ("=" * 58) -ForegroundColor Cyan
-    Write-Host "`nProtection is now active:" -ForegroundColor White
-    Write-Host "1. Claude cannot send any packets through your physical Ethernet or Wi-Fi." -ForegroundColor Gray
-    Write-Host "2. If your VPN connection drops, Windows immediately drops all Claude packets." -ForegroundColor Gray
-    Write-Host "3. All other programs (browsers, games, background apps) continue working normally." -ForegroundColor Gray
-} else {
-    Write-Host " WARNING: Only created $ruleCount out of $expectedCount required rules." -ForegroundColor Red
-    exit 1
-}
-
-if ([Environment]::UserInteractive -and (-not $Uninstall)) {
-    Write-Host "`nPress any key to close this window..."
-    try { $null = [Console]::ReadKey($true) } catch {}
+if ($MyInvocation.InvocationName -ne '.') {
+    try {
+        $arguments = '-NonInteractive'
+        if ($Uninstall) { $arguments += ' -Uninstall' }
+        $elevatedExit = Invoke-GuardElevation $PSCommandPath $arguments
+        if ($null -ne $elevatedExit) { exit $elevatedExit }
+        $mutex = New-Object Threading.Mutex($false, 'Global\ClaudeVPNGuard_FirewallSetup')
+        $locked = $false
+        try {
+            try { $locked = $mutex.WaitOne(0) } catch [Threading.AbandonedMutexException] { $locked=$true }
+            if (-not $locked) { throw 'Another firewall setup/removal is running.' }
+            Invoke-GuardFirewallSetup -Uninstall:$Uninstall
+        } finally { if ($locked) { $mutex.ReleaseMutex() }; $mutex.Dispose() }
+        exit 0
+    } catch { Write-Error $_ -ErrorAction Continue; exit 1 }
 }
