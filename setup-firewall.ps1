@@ -41,6 +41,9 @@ if ($Uninstall) {
     exit
 }
 
+# Enable dropped connections logging in Windows Defender Firewall
+netsh advfirewall set allprofiles logging droppedconnections enable | Out-Null
+
 # 3. Discover Physical Network Adapters (Ethernet / Wi-Fi)
 Write-Host "`n[2/3] Detecting physical network interfaces..." -ForegroundColor Gray
 $physicalAdapters = Get-NetAdapter -ErrorAction SilentlyContinue | Where-Object { 

@@ -78,12 +78,13 @@ Double-click **`create-desktop-shortcut.cmd`** to place a beautiful launch short
 ## 🎮 How to Use
 
 ### Option A: Launching Claude Desktop with Full Guard
-Double-click the **`Claude (VPN Guard)`** desktop shortcut (or **`launch-guarded.cmd`**):
-1. Verifies your VPN is connected and safe (blocks launch if your home IP is exposed).
-2. Matches and sets your Windows timezone to the VPN server location.
-3. Purges Sentry telemetry and Chromium persistent state caches.
-4. Starts Claude Desktop.
-5. Automatically restores your previous system timezone when Claude closes!
+Double-click the **`Claude (VPN Guard)`** desktop shortcut (or **`Claude (VPN Guard).exe`**):
+* **Zero Console Windows:** Runs natively as a lightweight background app with a system tray icon.
+* **Pre-Flight VPN Check:** Blocks launch if you forgot to turn on your VPN or if your real home IP is exposed.
+* **Auto Timezone Sync:** Matches and sets your Windows timezone to the VPN server location.
+* **Telemetry Scrubbing:** Purges Sentry telemetry and Chromium persistent state caches before start.
+* **Real-time Notifications:** Displays a native Windows notification if the firewall blocks an IP leak attempt outside VPN.
+* **Clean Restore:** Automatically restores your original system timezone when Claude closes!
 
 ### Option B: Using Claude Code CLI
 If you use the terminal CLI (`claude`):
