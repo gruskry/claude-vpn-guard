@@ -75,23 +75,40 @@ Double-click **`create-desktop-shortcut.cmd`** to place a beautiful launch short
 
 ---
 
+### Option B: DNS Leak Protection (DoH)
+Included is a script to enable DNS-over-HTTPS (DoH) globally for physical network adapters, preventing your home ISP from seeing your DNS queries to Anthropic.
+1. Run **`enable-dns-leak-protection.cmd`** as Administrator.
+2. It secures `1.1.1.1` and `8.8.8.8` DNS queries via DoH.
+
+---
+
 ## 🎮 How to Use
 
-### Option A: Launching Claude Desktop with Full Guard
+### Using the `Claude (VPN Guard)` Launcher
 Double-click the **`Claude (VPN Guard)`** desktop shortcut (or **`Claude (VPN Guard).exe`**):
 * **Zero Console Windows:** Runs natively as a lightweight background app with a system tray icon.
 * **Pre-Flight VPN Check:** Blocks launch if you forgot to turn on your VPN or if your real home IP is exposed.
 * **Auto Timezone Sync:** Matches and sets your Windows timezone to the VPN server location.
 * **Telemetry Scrubbing:** Purges Sentry telemetry and Chromium persistent state caches before start.
-* **Real-time Notifications:** Displays a native Windows notification if the firewall blocks an IP leak attempt outside VPN.
+* **Real-time Notifications:** Displays a native Windows notification if the firewall blocks an IP leak attempt.
 * **Clean Restore:** Automatically restores your original system timezone when Claude closes!
 
-### Option B: Using Claude Code CLI
+### Customizing Settings (`config.json`)
+You can place a `config.json` file next to the `.exe` to override automatic behavior:
+```json
+{
+    "target_timezone": "Georgian Standard Time",
+    "auto_detect": true,
+    "notify_on_block": true
+}
+```
+
+### Option C: Using Claude Code CLI
 If you use the terminal CLI (`claude`):
 ```cmd
 launch-cli-guarded.cmd
 ```
-Or simply run `claude` in your regular terminal! The Windows Firewall rules created in Step 2 **permanently protect the CLI binaries** from leaking outside the VPN.
+Or simply run `claude` in your regular terminal! The Windows Firewall rules created in Step 2 **permanently protect the CLI binaries** (and are immune to auto-updates via App Package rules) from leaking outside the VPN.
 
 ---
 

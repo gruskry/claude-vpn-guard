@@ -20,6 +20,31 @@ namespace ClaudeGuard
         private static long lastLogPosition = 0;
         private static string firewallLogPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System), @"LogFiles\Firewall\pfirewall.log");
 
+        private static string configTargetTimezone = "";
+        private static bool configAutoDetect = true;
+        private static bool configNotifyOnBlock = true;
+
+        private static void LoadConfig()
+        {
+            string configPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "config.json");
+            if (File.Exists(configPath))
+            {
+                try
+                {
+                    string json = File.ReadAllText(configPath);
+                    Match mTz = Regex.Match(json, @"""target_timezone""\s*:\s*""([^""]+)""");
+                    if (mTz.Success) configTargetTimezone = mTz.Groups[1].Value;
+
+                    Match mAuto = Regex.Match(json, @"""auto_detect""\s*:\s*(true|false)", RegexOptions.IgnoreCase);
+                    if (mAuto.Success) configAutoDetect = (mAuto.Groups[1].Value.ToLower() == "true");
+
+                    Match mNotify = Regex.Match(json, @"""notify_on_block""\s*:\s*(true|false)", RegexOptions.IgnoreCase);
+                    if (mNotify.Success) configNotifyOnBlock = (mNotify.Groups[1].Value.ToLower() == "true");
+                }
+                catch {}
+            }
+        }
+
         private static readonly Dictionary<string, string> TzMap = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
         {
             { "Asia/Tbilisi", "Georgian Standard Time" },
@@ -58,6 +83,8 @@ namespace ClaudeGuard
 
                 Application.EnableVisualStyles();
                 Application.SetCompatibleTextRenderingDefault(false);
+
+                LoadConfig();
 
                 // Initialize Tray Icon
                 trayIcon = new NotifyIcon();
@@ -113,9 +140,14 @@ namespace ClaudeGuard
                 }
 
                 // Step 2: Set target timezone matching VPN
-                if (!string.IsNullOrEmpty(detectedTz))
+                if (configAutoDetect && !string.IsNullOrEmpty(detectedTz))
                 {
                     activeTimezoneId = detectedTz;
+                    SetTimezone(activeTimezoneId);
+                }
+                else if (!configAutoDetect && !string.IsNullOrEmpty(configTargetTimezone))
+                {
+                    activeTimezoneId = configTargetTimezone;
                     SetTimezone(activeTimezoneId);
                 }
 
@@ -317,11 +349,14 @@ namespace ClaudeGuard
                             if (dropDetected && (DateTime.Now - lastNotificationTime).TotalSeconds > 15)
                             {
                                 lastNotificationTime = DateTime.Now;
-                                ShowNativeNotification(
-                                    "🛡️ Windows Firewall (Claude Guard)",
-                                    "Blocked direct connection attempt outside VPN!\nPacket dropped by Windows kernel. Zero leak.",
-                                    ToolTipIcon.Warning
-                                );
+                                if (configNotifyOnBlock)
+                                {
+                                    ShowNativeNotification(
+                                        "🛡️ Windows Firewall (Claude Guard)",
+                                        "Blocked direct connection attempt outside VPN!\nPacket dropped by Windows kernel. Zero leak.",
+                                        ToolTipIcon.Warning
+                                    );
+                                }
                             }
                         }
                     }

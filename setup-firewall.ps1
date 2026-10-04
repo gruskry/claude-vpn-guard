@@ -124,11 +124,34 @@ Write-Host "`nApplying Outbound Block rules in Windows Defender Firewall..." -Fo
 $ruleCount = 0
 foreach ($adapter in $physicalAdapters) {
     $tag = if ($adapter.Name -eq "Ethernet") { "LAN" } elseif ($adapter.Name -match "Wi-Fi|Беспроводн|Wireless") { "WiFi" } else { "Adapter$($adapter.InterfaceIndex)" }
-    $idx = 1
     
+    # A. Add Package-based rule (Immunity to Claude updates)
+    $packageFamilyName = "Claude_pzs8sxrjxfjjc"
+    $ruleNamePkg = "$RulePrefix-$tag-Pkg"
+    $displayNamePkg = "Claude Guard - Block [$($adapter.Name)] (App Package)"
+    
+    try {
+        New-NetFirewallRule -Name $ruleNamePkg `
+                            -DisplayName $displayNamePkg `
+                            -Description "Claude Kill-Switch: blocks App Package $packageFamilyName on $($adapter.Name) (survives updates)." `
+                            -Direction Outbound `
+                            -Action Block `
+                            -Package $packageFamilyName `
+                            -InterfaceAlias $adapter.Name `
+                            -Enabled True `
+                            -ErrorAction Stop | Out-Null
+        
+        Write-Host "  [OK] Blocked [$($adapter.Name)] for App Package: $packageFamilyName" -ForegroundColor Green
+        $ruleCount++
+    } catch {
+        Write-Host "  [ERROR] Failed to create App Package rule on [$($adapter.Name)]: $_" -ForegroundColor Red
+    }
+
+    $idx = 1
+    # B. Add executable-based rules for standalone/CLI installs
     foreach ($exe in $allExePaths) {
         $exeLeaf = Split-Path $exe -Leaf
-        $ruleName = "$RulePrefix-$tag-$idx"
+        $ruleName = "$RulePrefix-$tag-Exe$idx"
         $displayName = "Claude Guard - Block [$($adapter.Name)] ($exeLeaf #$idx)"
         
         try {
@@ -142,7 +165,7 @@ foreach ($adapter in $physicalAdapters) {
                                 -Enabled True `
                                 -ErrorAction Stop | Out-Null
             
-            Write-Host "  [OK] Blocked [$($adapter.Name)] for: $exeLeaf" -ForegroundColor Green
+            Write-Host "  [OK] Blocked [$($adapter.Name)] for Exe: $exeLeaf" -ForegroundColor Green
             $ruleCount++
             $idx++
         } catch {
