@@ -160,6 +160,8 @@ namespace ClaudeGuard
                 // Initialize log reader position
                 InitLogPosition();
 
+                appStartTime = DateTime.Now;
+
                 // Step 5: Start background monitor timer
                 watchTimer = new System.Windows.Forms.Timer();
                 watchTimer.Interval = 1500;
@@ -296,6 +298,8 @@ namespace ClaudeGuard
             }
         }
 
+        private static DateTime appStartTime;
+
         private static void InitLogPosition()
         {
             try
@@ -314,7 +318,11 @@ namespace ClaudeGuard
             Process[] procs = Process.GetProcessesByName("claude");
             if (procs == null || procs.Length == 0)
             {
-                ExitApplication();
+                // Grace period: Wait up to 15 seconds for Claude to start on slower PCs
+                if ((DateTime.Now - appStartTime).TotalSeconds > 15)
+                {
+                    ExitApplication();
+                }
                 return;
             }
 
