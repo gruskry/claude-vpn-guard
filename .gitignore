@@ -1,0 +1,12 @@
+# Temporary files
+*.tmp
+*.log
+leak_alert.txt
+
+# Python
+__pycache__/
+*.pyc
+
+# Windows
+Thumbs.db
+Desktop.ini
