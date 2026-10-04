@@ -69,9 +69,16 @@ namespace ClaudeGuard
             { "Asia/Dubai", "Arabian Standard Time" }
         };
 
+        private static string launchArgs = "";
+
         [STAThread]
-        static void Main()
+        static void Main(string[] args)
         {
+            if (args != null && args.Length > 0)
+            {
+                launchArgs = string.Join(" ", args);
+            }
+
             bool createdNew;
             using (Mutex mutex = new Mutex(true, "ClaudeVPNGuard_Singleton_Mutex", out createdNew))
             {
@@ -279,7 +286,8 @@ namespace ClaudeGuard
             {
                 ProcessStartInfo psi = new ProcessStartInfo("shell:AppsFolder\\Claude_pzs8sxrjxfjjc!Claude")
                 {
-                    UseShellExecute = true
+                    UseShellExecute = true,
+                    Arguments = launchArgs
                 };
                 Process.Start(psi);
                 started = true;
@@ -291,7 +299,11 @@ namespace ClaudeGuard
                 string localExe = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), @"Programs\Claude\Claude.exe");
                 if (File.Exists(localExe))
                 {
-                    Process.Start(localExe);
+                    ProcessStartInfo psiLocal = new ProcessStartInfo(localExe)
+                    {
+                        Arguments = launchArgs
+                    };
+                    Process.Start(psiLocal);
                 }
             }
         }
