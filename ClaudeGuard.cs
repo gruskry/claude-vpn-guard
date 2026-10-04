@@ -73,7 +73,7 @@ namespace ClaudeGuard
         static void Main()
         {
             bool createdNew;
-            using (Mutex mutex = new Mutex(true, "ClaudeVPNGuard_Singleton_Mutex", out createdNew))
+            using (Mutex mutex = new Mutex(true, "Global\\ClaudeVPNGuard_Singleton_Mutex", out createdNew))
             {
                 if (!createdNew)
                 {
@@ -336,6 +336,12 @@ namespace ClaudeGuard
                 if (!File.Exists(firewallLogPath)) return;
 
                 FileInfo fi = new FileInfo(firewallLogPath);
+
+                if (fi.Length < lastLogPosition)
+                {
+                    lastLogPosition = 0;
+                }
+
                 if (fi.Length > lastLogPosition)
                 {
                     using (FileStream fs = new FileStream(firewallLogPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
@@ -347,7 +353,7 @@ namespace ClaudeGuard
                             bool dropDetected = false;
                             while ((line = sr.ReadLine()) != null)
                             {
-                                if (line.Contains("DROP") && (line.Contains("192.168.") || line.Contains("10.")))
+                                if (line.Contains("DROP") && Regex.IsMatch(line, @"\b(?:10\.|192\.168\.|172\.(?:1[6-9]|2[0-9]|3[0-1])\.|100\.(?:6[4-9]|[7-9][0-9]|1[01][0-9]|12[0-7])\.)"))
                                 {
                                     dropDetected = true;
                                 }
