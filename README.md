@@ -71,24 +71,29 @@ If you prefer not to use the installer:
 ---
 
 ### DNS Leak Protection (DoH)
-Included is an optional script to enable DNS-over-HTTPS (DoH) globally for physical network adapters, preventing your home ISP from seeing your DNS queries to Anthropic.
-1. Run **`enable-dns-leak-protection.cmd`** as Administrator.
-2. It secures `1.1.1.1` and `8.8.8.8` DNS queries via DoH.
+To prevent your home ISP from seeing your DNS queries to Anthropic, you can enable DNS-over-HTTPS (DoH) for your physical adapters. 
+*(Note: If you use the `.zip` manual install, run `enable-dns-leak-protection.cmd` as Administrator).*
 
 ---
 
 ## 🎮 How to Use
 
-### Using the `Claude (VPN Guard)` Launcher
-Double-click the **`Claude (VPN Guard)`** desktop shortcut (or **`Claude (VPN Guard).exe`**):
-* **Zero Console Windows:** Runs natively as a lightweight background app with a system tray icon.
-* **Pre-Flight VPN Check:** Blocks launch if you forgot to turn on your VPN or if your real home IP is exposed.
+### 1. Everyday Launch (The Launcher)
+Always start Claude using the **`Claude (VPN Guard)`** desktop shortcut. 
+* **Zero Console Windows:** Runs natively as a lightweight background app in your system tray.
+* **Pre-Flight VPN Check:** Blocks launch if you forgot to turn on your VPN.
 * **Auto Timezone Sync:** Matches and sets your Windows timezone to the VPN server location.
 * **Telemetry Scrubbing:** Purges Sentry telemetry and Chromium persistent state caches before start.
-* **Real-time Notifications:** Displays a native Windows notification if the firewall blocks an IP leak attempt.
-* **Clean Restore:** Automatically restores your original system timezone when Claude closes!
+* **Real-time Notifications:** Displays a Windows toast notification if the firewall blocks an IP leak attempt.
+* **Clean Restore:** Automatically restores your original system timezone when you close Claude!
 
-### Customizing Settings (`config.json`)
+### 2. Browser Authentication (Logging In)
+When you log into Claude via their website, the browser will prompt you to open the `claude://` link. 
+* This will launch the original Claude app directly, bypassing the Guard launcher.
+* **Is this safe? Yes.** The kernel firewall rules are permanently active. If your VPN is off, the login will safely fail without leaking your real IP.
+* **Best Practice:** Always launch `Claude (VPN Guard)` from your desktop *before* clicking "Open in App" in the browser. This ensures your timezone is synced and telemetry is wiped *before* the app receives the authentication token.
+
+### 3. Customizing Settings (`config.json`)
 You can place a `config.json` file next to the `.exe` to override automatic behavior:
 ```json
 {
@@ -98,12 +103,12 @@ You can place a `config.json` file next to the `.exe` to override automatic beha
 }
 ```
 
-### Option C: Using Claude Code CLI
+### 4. Using Claude Code CLI
 If you use the terminal CLI (`claude`):
 ```cmd
 launch-cli-guarded.cmd
 ```
-Or simply run `claude` in your regular terminal! The Windows Firewall rules created in Step 2 **permanently protect the CLI binaries** (and are immune to auto-updates via App Package rules) from leaking outside the VPN.
+Or simply run `claude` in your regular terminal! The Windows Firewall rules created by the installer **permanently protect the CLI binaries** (and are immune to auto-updates via App Package rules) from leaking outside the VPN.
 
 ---
 
