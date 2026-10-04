@@ -29,9 +29,7 @@ Write-Host "==========================================================" -Foregro
 
 $RulePrefix = "Claude-VPN-Guard-Block"
 
-# 2. Clean previous rules
-Write-Host "`n[1/3] Removing previous firewall rules..." -ForegroundColor Gray
-Get-NetFirewallRule -Name "$RulePrefix*" -ErrorAction SilentlyContinue | Remove-NetFirewallRule -ErrorAction SilentlyContinue
+
 
 if ($Uninstall) {
     Write-Host "`nAll Claude firewall block rules have been removed!" -ForegroundColor Green
@@ -76,7 +74,7 @@ $discoveredExes = [System.Collections.Generic.List[string]]::new()
 $windowsAppsFolders = Get-ChildItem "C:\Program Files\WindowsApps" -Filter "*Claude*" -Directory -ErrorAction SilentlyContinue
 foreach ($dir in $windowsAppsFolders) {
     $exes = Get-ChildItem $dir.FullName -Filter "*.exe" -Recurse -ErrorAction SilentlyContinue | Select-Object -ExpandProperty FullName
-    if ($exes) { $discoveredExes.AddRange($exes) }
+    if ($exes) { $discoveredExes.AddRange([string[]]$exes) }
 }
 
 # B. Standard User Installations (Squirrel / LocalAppData)
@@ -87,7 +85,7 @@ $standardPaths = @(
 )
 foreach ($pattern in $standardPaths) {
     $matches = Resolve-Path $pattern -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Path
-    if ($matches) { $discoveredExes.AddRange($matches) }
+    if ($matches) { $discoveredExes.AddRange([string[]]$matches) }
 }
 
 # C. Claude Code CLI (Roaming / Local AppData / npm)
@@ -99,7 +97,7 @@ $cliPatterns = @(
 )
 foreach ($pattern in $cliPatterns) {
     $matches = Resolve-Path $pattern -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Path
-    if ($matches) { $discoveredExes.AddRange($matches) }
+    if ($matches) { $discoveredExes.AddRange([string[]]$matches) }
 }
 
 # D. Check PATH for claude command
@@ -108,7 +106,7 @@ if ($cmdExe) { $discoveredExes.Add($cmdExe) }
 
 # Deduplicate and filter existing paths
 $allExePaths = $discoveredExes | Select-Object -Unique | Where-Object { 
-    Test-Path $_ -PathType Leaf -and $_ -match "\.exe$"
+    (Test-Path $_ -PathType Leaf) -and ($_ -match "\.exe$")
 }
 
 if ($allExePaths.Count -eq 0) {
@@ -124,11 +122,15 @@ foreach ($p in $allExePaths) {
 }
 
 # 5. Create Windows Firewall Outbound Block Rules
+Write-Host "`nRemoving previous firewall rules before applying new ones..." -ForegroundColor Gray
+Get-NetFirewallRule -Name "$RulePrefix*" -ErrorAction SilentlyContinue | Remove-NetFirewallRule -ErrorAction SilentlyContinue
+
 Write-Host "`nApplying Outbound Block rules in Windows Defender Firewall..." -ForegroundColor Yellow
 
 $ruleCount = 0
 foreach ($adapter in $physicalAdapters) {
-    $tag = if ($adapter.Name -eq "Ethernet") { "LAN" } elseif ($adapter.Name -match "Wi-Fi|Беспроводн|Wireless") { "WiFi" } else { "Adapter$($adapter.InterfaceIndex)" }
+    $tag = if ($adapter.Name -eq "Ethernet") { "LAN" } elseif ($adapter.Name -match "Wi-Fi|Беспроводн|Wireless") { "WiFi" } else { "Adapter" }
+    $tag = "$tag-$($adapter.InterfaceIndex)"
     
     # A. Add Package-based rule (Immunity to Claude updates)
     $packageFamilyName = "Claude_pzs8sxrjxfjjc"
@@ -179,8 +181,10 @@ foreach ($adapter in $physicalAdapters) {
     }
 }
 
+$expectedCount = $physicalAdapters.Count * (1 + $allExePaths.Count)
+
 Write-Host "`n" + ("=" * 58) -ForegroundColor Cyan
-if ($ruleCount -gt 0) {
+if ($ruleCount -eq $expectedCount -and $expectedCount -gt 0) {
     Write-Host " SUCCESS! Created $ruleCount firewall rule(s)." -ForegroundColor Green -BackgroundColor Black
     Write-Host ("=" * 58) -ForegroundColor Cyan
     Write-Host "`nProtection is now active:" -ForegroundColor White
@@ -188,8 +192,11 @@ if ($ruleCount -gt 0) {
     Write-Host "2. If your VPN connection drops, Windows immediately drops all Claude packets." -ForegroundColor Gray
     Write-Host "3. All other programs (browsers, games, background apps) continue working normally." -ForegroundColor Gray
 } else {
-    Write-Host " WARNING: No rules were created. Please verify administrator rights." -ForegroundColor Red
+    Write-Host " WARNING: Only created $ruleCount out of $expectedCount required rules." -ForegroundColor Red
+    exit 1
 }
 
-Write-Host "`nPress any key to close this window..."
-$null = [Console]::ReadKey($true)
+if ([Environment]::UserInteractive -and (-not $Uninstall)) {
+    Write-Host "`nPress any key to close this window..."
+    try { $null = [Console]::ReadKey($true) } catch {}
+}

@@ -210,12 +210,12 @@ namespace ClaudeGuard
                                 targetWinTz = TzMap[iana];
                         }
 
-                        if (!string.IsNullOrEmpty(country) && country != "UNKNOWN")
+                        if (!string.IsNullOrEmpty(country) && country.ToUpper() != "UNKNOWN" && !string.IsNullOrEmpty(ip) && ip.ToUpper() != "UNKNOWN")
                         {
                             string[] blocked = new string[] { "BY", "RU", "IR", "KP", "SY", "CU" };
                             foreach (string b in blocked)
                             {
-                                if (country == b) return false;
+                                if (country.ToUpper() == b) return false;
                             }
                             return true;
                         }

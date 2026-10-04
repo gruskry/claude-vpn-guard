@@ -28,7 +28,8 @@ foreach ($server in $dohServers) {
         Set-DnsClientDohServerAddress -ServerAddress $server -AutoUpgrade $true -AllowFallbackToUdp $false -ErrorAction Stop
         Write-Host "  [OK] Enforced DoH for $server" -ForegroundColor Green
     } catch {
-        Write-Host "  [WARNING] Could not configure DoH for $server: $_" -ForegroundColor Yellow
+        Write-Host "  [WARNING] Could not configure DoH for ${server}: $_" -ForegroundColor Yellow
+        exit 1
     }
 }
 
