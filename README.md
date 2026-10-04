@@ -1,5 +1,7 @@
 # 🛡️ Claude VPN Guard (Windows)
 
+![Claude VPN Guard Banner](assets/banner.jpg)
+
 > **Zero-Leak Protection & Auto-KillSwitch for Claude Desktop & Claude Code CLI**  
 > Protects your Anthropic account from accidental bans caused by VPN drops, split-tunneling leaks, and timezone/IP mismatches.
 
