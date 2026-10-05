@@ -34,7 +34,7 @@ try {
     $versionCli=(Get-Item -LiteralPath (Join-Path $cliVersion 'claude.exe')).FullName
     $inventory=Get-GuardInventory
     Assert ($inventory.Programs -notcontains $scratchExe -and $inventory.Programs -notcontains $cachedExe) 'user workspace and cache executables must not receive Claude rules'
-    Assert ($inventory.Programs -contains $versionHelper -and $inventory.Programs -contains $versionCli) 'versioned Desktop helpers and native CLI remain protected'
+    Assert ($inventory.Programs -contains $versionHelper -and $inventory.Programs -contains $versionCli) ("versioned Desktop helpers and native CLI remain protected; helper='$versionHelper'; cli='$versionCli'; actual="+(@($inventory.Programs) -join '; '))
     foreach ($invalid in @('relative\Claude.exe','\\server\share\Claude.exe',42)) {
         @{desktop_path=$invalid} | ConvertTo-Json | Set-Content -LiteralPath $configPath -Encoding UTF8
         try { Get-GuardInventory; throw 'unexpected success' } catch { Assert ($_.Exception.Message -ne 'unexpected success') 'unsafe custom path is rejected' }
