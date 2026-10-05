@@ -17,7 +17,10 @@ try {
     function Get-AppxPackage { [CmdletBinding()]param(); @() }
     function Get-Command { param($Name,$CommandType,$ErrorAction); $null }
     $inventory=Get-GuardInventory
-    Assert ($inventory.Programs.Count -eq 2 -and $inventory.DesktopPaths[0] -eq $desktop) 'custom app and helper paths receive coverage'
+    # Hosted Windows runners can expose TEMP through a short (8.3) path.
+    # Inventory intentionally expands that alias to the executable's full path.
+    $canonicalDesktop=[IO.Path]::GetFullPath($desktop)
+    Assert ($inventory.Programs.Count -eq 2 -and $inventory.DesktopPaths[0] -eq $canonicalDesktop -and $inventory.PreferredDesktop -eq $canonicalDesktop) 'custom app and helper paths receive coverage'
     foreach ($invalid in @('relative\Claude.exe','\\server\share\Claude.exe',42)) {
         @{desktop_path=$invalid} | ConvertTo-Json | Set-Content -LiteralPath $configPath -Encoding UTF8
         try { Get-GuardInventory; throw 'unexpected success' } catch { Assert ($_.Exception.Message -ne 'unexpected success') 'unsafe custom path is rejected' }

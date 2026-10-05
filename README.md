@@ -9,26 +9,26 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/gruskry/claude-vpn-guard/releases/tag/v1.4.0-rc.1"><img src="https://img.shields.io/badge/preview-v1.4.0--rc.1-D28A23" alt="Preview v1.4.0-rc.1"></a>
+  <a href="https://github.com/gruskry/claude-vpn-guard/releases/tag/v1.4.0-rc.2"><img src="https://img.shields.io/badge/preview-v1.4.0--rc.2-D28A23" alt="Preview v1.4.0-rc.2"></a>
   <img src="https://img.shields.io/badge/Windows-x64-0078D4" alt="Windows x64">
   <img src="https://img.shields.io/badge/PowerShell-5.1-5391FE" alt="Windows PowerShell 5.1">
 </p>
 
 <p align="center">
-  <a href="https://github.com/gruskry/claude-vpn-guard/releases/download/v1.4.0-rc.1/ClaudeVPNGuard_Installer.exe"><strong>Preview installer</strong></a>
+  <a href="https://github.com/gruskry/claude-vpn-guard/releases/download/v1.4.0-rc.2/ClaudeVPNGuard_Installer.exe"><strong>Preview installer</strong></a>
   &nbsp; · &nbsp;
-  <a href="https://github.com/gruskry/claude-vpn-guard/releases/download/v1.4.0-rc.1/claude-vpn-guard-windows.zip"><strong>Preview portable ZIP</strong></a>
+  <a href="https://github.com/gruskry/claude-vpn-guard/releases/download/v1.4.0-rc.2/claude-vpn-guard-windows.zip"><strong>Preview portable ZIP</strong></a>
   &nbsp; · &nbsp;
-  <a href="https://github.com/gruskry/claude-vpn-guard/releases/tag/v1.4.0-rc.1">Release notes</a>
+  <a href="https://github.com/gruskry/claude-vpn-guard/releases/tag/v1.4.0-rc.2">Release notes</a>
   &nbsp; · &nbsp;
-  <a href="https://github.com/gruskry/claude-vpn-guard/releases/download/v1.4.0-rc.1/SHA256SUMS.txt">SHA256 checksums</a>
+  <a href="https://github.com/gruskry/claude-vpn-guard/releases/download/v1.4.0-rc.2/SHA256SUMS.txt">SHA256 checksums</a>
 </p>
 
 ---
 
 Guard detects the active internet VPN tunnel from local routes, pins its interface GUID, and installs Windows Defender Firewall outbound blocks on the other enumerated adapters for discovered native Claude executables. The tray and terminal launchers verify the tunnel and effective rules before starting Claude and monitor the session.
 
-> **v1.4.0-rc.1 is a preview.** It introduces VPN-pinned rules and automatic refresh. Live VPN, DNS and IPv4/IPv6 acceptance is still pending. The previous stable release is [v1.3.2](https://github.com/gruskry/claude-vpn-guard/releases/tag/v1.3.2).
+> **v1.4.0-rc.2 is a preview.** It introduces VPN-pinned rules and automatic refresh. Live VPN, DNS and IPv4/IPv6 acceptance is still pending. The previous stable release is [v1.3.2](https://github.com/gruskry/claude-vpn-guard/releases/tag/v1.3.2).
 
 [Quick start](#quick-start) · [Launchers](#launchers) · [Updates](#claude-updates) · [Settings](#settings) · [Privacy](#local-diagnostic-privacy) · [DNS](#optional-dns-over-https) · [Troubleshooting](#troubleshooting) · [Scope](#scope-and-limitations) · [Build](#build)
 
@@ -61,14 +61,14 @@ Guard detects the active internet VPN tunnel from local routes, pins its interfa
 ### Installer
 
 1. Install Claude and connect your VPN.
-2. Download and run the **[preview installer](https://github.com/gruskry/claude-vpn-guard/releases/download/v1.4.0-rc.1/ClaudeVPNGuard_Installer.exe)**. Approve the administrator prompt.
+2. Download and run the **[preview installer](https://github.com/gruskry/claude-vpn-guard/releases/download/v1.4.0-rc.2/ClaudeVPNGuard_Installer.exe)**. Approve the administrator prompt.
 3. Start Claude through **Claude (VPN Guard)**. Close Claude to end the monitored session.
 
 Firewall setup must succeed before installation proceeds. Failed setup retains the previous rules and reports an error.
 
 ### Portable
 
-1. Download the **[preview ZIP](https://github.com/gruskry/claude-vpn-guard/releases/download/v1.4.0-rc.1/claude-vpn-guard-windows.zip)** and extract the entire archive to a trusted folder.
+1. Download the **[preview ZIP](https://github.com/gruskry/claude-vpn-guard/releases/download/v1.4.0-rc.2/claude-vpn-guard-windows.zip)** and extract the entire archive to a trusted folder.
 2. Run `setup-firewall.cmd` and approve the administrator prompt.
 3. Start `Claude (VPN Guard).exe` or `launch-guarded.cmd`.
 
@@ -127,7 +127,7 @@ If a driver is unrecognized, an explicit `-VpnGuid` selection is available. Insp
 
 ### Upgrading Guard
 
-Close Claude and the previous Guard session, connect the VPN, then install **v1.4.0-rc.1** or replace the complete portable package. Installed settings are preserved. Version 1 firewall state is migrated after effective version 2 rules have been verified.
+Close Claude and the previous Guard session, connect the VPN, then install **v1.4.0-rc.2** or replace the complete portable package. Installed settings are preserved. Version 1 firewall state is migrated after effective version 2 rules have been verified.
 
 Version **1.3.2** fixes the `Desktop launch does not accept CLI arguments` error on a normal Desktop launch. If you see it in v1.3.1, update the complete package.
 
