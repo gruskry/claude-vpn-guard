@@ -1,6 +1,6 @@
 [Setup]
 AppName=Claude VPN Guard
-AppVersion=1.3.1
+AppVersion=1.3.2
 AppPublisher=Dzmitry Danilau (gruskry)
 AppPublisherURL=https://github.com/gruskry/claude-vpn-guard
 DefaultDirName={autopf}\Claude VPN Guard

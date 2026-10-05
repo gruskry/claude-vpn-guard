@@ -12,8 +12,10 @@ $ErrorActionPreference = 'Stop'
 if ($MyInvocation.InvocationName -ne '.') {
     try {
         if ($LaunchCLI -and $LaunchClaude) { throw 'Choose Desktop or CLI, not both.' }
-        if (-not $LaunchCLI -and @($CliArguments).Count) { throw 'Desktop launch does not accept CLI arguments.' }
-        $forwarded=@($CliArguments) + @($args)
+        # An omitted string[] is $null; @($null).Count is 1 in Windows PowerShell.
+        # Remove absent values while preserving real empty-string CLI arguments.
+        $forwarded=@(@($CliArguments) + @($args) | Where-Object { $null -ne $_ })
+        if (-not $LaunchCLI -and $forwarded.Count) { throw 'Desktop launch does not accept CLI arguments.' }
         $result = Invoke-GuardLaunch -LaunchCLI:$LaunchCLI -CliArguments $forwarded -TargetTimezone $TargetTimezone -NoTimezoneChange:$NoTimezoneChange
         exit $result
     } catch { [Console]::Error.WriteLine($_.Exception.Message); exit 1 }

@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/gruskry/claude-vpn-guard/releases/tag/v1.3.1"><img src="https://img.shields.io/badge/release-v1.3.1-169B8A" alt="Release v1.3.1"></a>
+  <a href="https://github.com/gruskry/claude-vpn-guard/releases/tag/v1.3.2"><img src="https://img.shields.io/badge/release-v1.3.2-169B8A" alt="Release v1.3.2"></a>
   <img src="https://img.shields.io/badge/Windows-x64-0078D4" alt="Windows x64">
   <img src="https://img.shields.io/badge/PowerShell-5.1-5391FE" alt="Windows PowerShell 5.1">
 </p>
@@ -19,7 +19,7 @@
   &nbsp; · &nbsp;
   <a href="https://github.com/gruskry/claude-vpn-guard/releases/latest/download/claude-vpn-guard-windows.zip"><strong>Download portable ZIP</strong></a>
   &nbsp; · &nbsp;
-  <a href="https://github.com/gruskry/claude-vpn-guard/releases/tag/v1.3.1">Release notes</a>
+  <a href="https://github.com/gruskry/claude-vpn-guard/releases/tag/v1.3.2">Release notes</a>
   &nbsp; · &nbsp;
   <a href="https://github.com/gruskry/claude-vpn-guard/releases/latest/download/SHA256SUMS.txt">SHA256 checksums</a>
 </p>
@@ -28,7 +28,7 @@
 
 Guard installs Windows Defender Firewall outbound block rules for discovered native Claude executables on physical network adapters. Its tray and terminal launchers verify the effective rules before starting Claude and monitor coverage during the session.
 
-> **Claude path detection is automatic. Firewall rule updates are manual in v1.3.1.** After a new executable path or physical adapter appears, run `setup-firewall.cmd` again. See [Claude updates](#claude-updates).
+> **Claude path detection is automatic. Firewall rule updates are manual in v1.3.2.** After a new executable path or physical adapter appears, run `setup-firewall.cmd` again. See [Claude updates](#claude-updates).
 
 [Quick start](#quick-start) · [Launchers](#launchers) · [Claude updates](#claude-updates) · [Settings](#settings) · [DNS](#optional-dns-over-https) · [Troubleshooting](#troubleshooting) · [Scope](#scope-and-limitations) · [Build](#build)
 
@@ -116,7 +116,9 @@ If a new executable lacks an effective rule, Guard refuses a new launch or attem
 
 ### Upgrading Guard
 
-Close Claude and the previous Guard session. Install **v1.3.1**, or replace the entire portable folder with the new ZIP and run `setup-firewall.cmd`. New setup state replaces the previous state only after the new rules are verified.
+Close Claude and the previous Guard session. Install **v1.3.2**, or replace the entire portable folder with the new ZIP and run `setup-firewall.cmd`. New setup state replaces the previous state only after the new rules are verified.
+
+Version **1.3.2** fixes the `Desktop launch does not accept CLI arguments` error on a normal Desktop launch. If you see it in v1.3.1, update the complete package.
 
 ## Settings
 
@@ -159,6 +161,7 @@ Older releases did not save DNS backups. Their original settings must be restore
 
 | Situation | Next step |
 | --- | --- |
+| **Desktop launch does not accept CLI arguments** | Update to v1.3.2. Version 1.3.1 incorrectly treated an omitted argument list as a supplied CLI argument. |
 | **Coverage check fails after a Claude update** | Close Claude, run `setup-firewall.cmd`, then launch through Guard again. |
 | **A physical adapter was added or renamed** | Run setup again to create matching rules for the current adapters. |
 | **Firewall is disabled or local rules are rejected** | Enable all firewall profiles and resolve the local-rule policy before retrying setup. |
