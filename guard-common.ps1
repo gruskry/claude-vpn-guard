@@ -98,7 +98,7 @@ function Get-GuardInventory {
     }
     foreach ($package in @(Get-AppxPackage -ErrorAction Stop | Where-Object { $_.PackageFamilyName -eq 'Claude_pzs8sxrjxfjjc' })) {
         if (-not $package.InstallLocation) { throw 'Claude package installation path is unavailable.' }
-        $packages += [pscustomobject]@{ Family=$package.PackageFamilyName; Sid=(Get-GuardPackageSid $package.PackageFamilyName); Root=$package.InstallLocation }
+        $packages += [pscustomobject]@{ Family=$package.PackageFamilyName; Sid=(Get-GuardPackageSid $package.PackageFamilyName); Root=[IO.Path]::GetFullPath($package.InstallLocation) }
         foreach ($file in @(Get-ChildItem -LiteralPath $package.InstallLocation -Filter '*.exe' -Recurse -File -ErrorAction Stop)) { $programs.Add($file.FullName) }
     }
     $patterns = @(
@@ -111,11 +111,12 @@ function Get-GuardInventory {
     )
     foreach ($pattern in $patterns) {
         foreach ($path in @(Resolve-Path -Path $pattern -ErrorAction SilentlyContinue)) {
-            if (Test-Path -LiteralPath $path.Path -PathType Leaf) { $programs.Add($path.Path) }
+            if (Test-Path -LiteralPath $path.ProviderPath -PathType Leaf) { $programs.Add($path.ProviderPath) }
         }
     }
     $cli = Get-Command claude.exe -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
-    if ($cli) { $programs.Add($cli.Source) }
+    $cliPath=$null
+    if ($cli) { $cliPath=[IO.Path]::GetFullPath($cli.Source); $programs.Add($cliPath) }
     # Programs\Claude is an installation root. Claude's data roots also contain
     # user projects, virtual environments and downloads: never recurse over them.
     foreach ($folder in @("$env:LOCALAPPDATA\Programs\Claude")) {
@@ -134,18 +135,26 @@ function Get-GuardInventory {
             }
         }
     }
-    $desktop = @($programs | Where-Object {
+    # Windows PowerShell's full-path normalization expands existing 8.3 aliases.
+    # Resolve-Path may preserve them: use one representation for rule scopes,
+    # process identities, duplicate removal and Desktop selection.
+    $nativePaths=@($programs | ForEach-Object { [IO.Path]::GetFullPath($_) } | Sort-Object -Unique)
+    $localInstallRoot=[IO.Path]::GetFullPath("$env:LOCALAPPDATA\Programs\Claude")
+    $localDataRoot=[IO.Path]::GetFullPath("$env:LOCALAPPDATA\Claude")
+    $roamingDataRoot=[IO.Path]::GetFullPath("$env:APPDATA\Claude")
+    $desktop = @($nativePaths | Where-Object {
         $path = $_
         (Split-Path $path -Leaf) -ieq 'Claude.exe' -and (
-            $path -ieq "$env:LOCALAPPDATA\Programs\Claude\Claude.exe" -or
-            $path -ieq "$env:LOCALAPPDATA\Claude\Claude.exe" -or
-            $path -ieq "$env:APPDATA\Claude\Claude.exe" -or
+            $path -ieq "$localInstallRoot\Claude.exe" -or
+            $path -ieq "$localDataRoot\Claude.exe" -or
+            $path -ieq "$roamingDataRoot\Claude.exe" -or
             ($custom -and $path -ieq $custom) -or
-            $path -like "$env:LOCALAPPDATA\Claude\app-*\Claude.exe" -or
+            $path -like "$localDataRoot\app-*\Claude.exe" -or
+            $path -like "$roamingDataRoot\app-*\Claude.exe" -or
             @($packages | Where-Object { $path.StartsWith($_.Root.TrimEnd('\') + '\', [StringComparison]::OrdinalIgnoreCase) }).Count -gt 0
         )
     } | Sort-Object -Unique)
-    [pscustomobject]@{ Programs=@($programs | Sort-Object -Unique); DesktopPaths=$desktop; PreferredDesktop=$custom; Packages=@($packages); CliPath=$(if ($cli) { $cli.Source } else { $null }) }
+    [pscustomobject]@{ Programs=$nativePaths; DesktopPaths=$desktop; PreferredDesktop=$custom; Packages=@($packages); CliPath=$cliPath }
 }
 function Assert-GuardProfiles {
     $profiles = @(Get-NetFirewallProfile -PolicyStore ActiveStore -ErrorAction Stop)

@@ -32,9 +32,12 @@ try {
     $scratchExe=(Get-Item -LiteralPath $scratchExe).FullName; $cachedExe=(Get-Item -LiteralPath $cachedExe).FullName
     $versionHelper=(Get-Item -LiteralPath (Join-Path $version 'helper.exe')).FullName
     $versionCli=(Get-Item -LiteralPath (Join-Path $cliVersion 'claude.exe')).FullName
+    $versionDesktop=(Get-Item -LiteralPath (Join-Path $version 'Claude.exe')).FullName
     $inventory=Get-GuardInventory
     Assert ($inventory.Programs -notcontains $scratchExe -and $inventory.Programs -notcontains $cachedExe) 'user workspace and cache executables must not receive Claude rules'
     Assert ($inventory.Programs -contains $versionHelper -and $inventory.Programs -contains $versionCli) ("versioned Desktop helpers and native CLI remain protected; helper='$versionHelper'; cli='$versionCli'; actual="+(@($inventory.Programs) -join '; '))
+    Assert ($inventory.Programs.Count -eq 5) 'short path aliases must not duplicate executable coverage'
+    Assert ($inventory.DesktopPaths -contains $versionDesktop) 'versioned Desktop remains selectable through short data-root aliases'
     foreach ($invalid in @('relative\Claude.exe','\\server\share\Claude.exe',42)) {
         @{desktop_path=$invalid} | ConvertTo-Json | Set-Content -LiteralPath $configPath -Encoding UTF8
         try { Get-GuardInventory; throw 'unexpected success' } catch { Assert ($_.Exception.Message -ne 'unexpected success') 'unsafe custom path is rejected' }

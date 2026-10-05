@@ -1,6 +1,6 @@
 [Setup]
 AppName=Claude VPN Guard
-AppVersion=1.4.0-rc.4
+AppVersion=1.4.0
 VersionInfoVersion=1.4.0.0
 AppPublisher=Dzmitry Danilau (gruskry)
 AppPublisherURL=https://github.com/gruskry/claude-vpn-guard
