@@ -43,7 +43,7 @@ function Invoke-GuardFirewallSetup([switch]$Uninstall, [string]$VpnGuid, [switch
             if ($specification.Program) { $parameters.Program=$specification.Program } else { $parameters.Package=$specification.Package }
             New-NetFirewallRule @parameters | Out-Null
         }
-        Assert-GuardCoverage $specifications $newNames.ToArray()
+        Assert-GuardCoverage $specifications $newNames.ToArray() -DuringRefresh
         # Recheck the tunnel before committing. Never repin automatically during a refresh.
         $null=Get-GuardVpnAdapter $vpn.InterfaceGuid
         Save-GuardFirewallState ([pscustomobject]@{ Version=2; VpnGuid="$($vpn.InterfaceGuid)"; Rules=$newNames.ToArray(); Adapters=@($adapters | ForEach-Object { [pscustomobject]@{ Guid="$($_.InterfaceGuid)"; Alias=$_.Name } }) })
@@ -53,6 +53,9 @@ function Invoke-GuardFirewallSetup([switch]$Uninstall, [string]$VpnGuid, [switch
         throw "Setup failed; previous rules retained. $failure"
     }
     foreach ($rule in $oldRules) { $rule | Remove-NetFirewallRule -ErrorAction Stop }
+    # Windows may have optimized new rules as duplicates while the old
+    # generation existed. Require the committed generation to stand alone now.
+    Assert-GuardCoverage $specifications $newNames.ToArray()
     Write-Host "Verified $($newNames.Count) block rules; VPN pinned to '$($vpn.Name)'."
 }
 if ($MyInvocation.InvocationName -ne '.') {

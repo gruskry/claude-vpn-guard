@@ -116,9 +116,22 @@ function Get-GuardInventory {
     }
     $cli = Get-Command claude.exe -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
     if ($cli) { $programs.Add($cli.Source) }
-    foreach ($folder in @("$env:LOCALAPPDATA\Programs\Claude", "$env:LOCALAPPDATA\Claude", "$env:APPDATA\Claude")) {
+    # Programs\Claude is an installation root. Claude's data roots also contain
+    # user projects, virtual environments and downloads: never recurse over them.
+    foreach ($folder in @("$env:LOCALAPPDATA\Programs\Claude")) {
         if (Test-Path -LiteralPath $folder -PathType Container) {
             foreach ($file in @(Get-ChildItem -LiteralPath $folder -Filter '*.exe' -Recurse -File -ErrorAction Stop)) { $programs.Add($file.FullName) }
+        }
+    }
+    foreach ($dataRoot in @("$env:LOCALAPPDATA\Claude", "$env:APPDATA\Claude")) {
+        if (-not (Test-Path -LiteralPath $dataRoot -PathType Container)) { continue }
+        if (Test-Path -LiteralPath (Join-Path $dataRoot 'Claude.exe') -PathType Leaf) {
+            foreach ($file in @(Get-ChildItem -LiteralPath $dataRoot -Filter '*.exe' -File -ErrorAction Stop)) { $programs.Add($file.FullName) }
+        }
+        foreach ($folder in @(Get-ChildItem -LiteralPath $dataRoot -Filter 'app-*' -Directory -ErrorAction Stop)) {
+            if (Test-Path -LiteralPath (Join-Path $folder.FullName 'Claude.exe') -PathType Leaf) {
+                foreach ($file in @(Get-ChildItem -LiteralPath $folder.FullName -Filter '*.exe' -Recurse -File -ErrorAction Stop)) { $programs.Add($file.FullName) }
+            }
         }
     }
     $desktop = @($programs | Where-Object {
@@ -146,8 +159,25 @@ function Get-GuardSpecifications($Inventory, $Adapters) {
         foreach ($package in @($Inventory.Packages)) { [pscustomobject]@{ Alias=$adapter.Name; Guid="$($adapter.InterfaceGuid)"; InterfaceStatus="$($adapter.Status)"; Program=$null; Package=$package.Sid } }
     }
 }
-function Test-GuardRule($Rule, $Specification) {
+function Get-GuardRuleFilter($Rule, [string]$Kind, [hashtable]$Cache) {
+    $key="$($Rule.Name):$Kind"
+    if ($null -ne $Cache -and $Cache.ContainsKey($key)) { return $Cache[$key] }
+    $filter = switch ($Kind) {
+        'Application' { $Rule | Get-NetFirewallApplicationFilter -ErrorAction Stop }
+        'Interface' { $Rule | Get-NetFirewallInterfaceFilter -ErrorAction Stop }
+        'Port' { $Rule | Get-NetFirewallPortFilter -ErrorAction Stop }
+        'Address' { $Rule | Get-NetFirewallAddressFilter -ErrorAction Stop }
+        'Service' { $Rule | Get-NetFirewallServiceFilter -ErrorAction Stop }
+        'InterfaceType' { $Rule | Get-NetFirewallInterfaceTypeFilter -ErrorAction Stop }
+        'Security' { $Rule | Get-NetFirewallSecurityFilter -ErrorAction Stop }
+        default { throw 'Unknown firewall filter.' }
+    }
+    if ($null -ne $Cache) { $Cache[$key]=$filter }
+    return $filter
+}
+function Test-GuardRule($Rule, $Specification, [switch]$AllowDuplicate, [hashtable]$FilterCache) {
     if ("$($Rule.Enabled)" -ne 'True' -or "$($Rule.Direction)" -ne 'Outbound' -or "$($Rule.Action)" -ne 'Block' -or "$($Rule.Profile)" -ne 'Any') { return $false }
+    if ("$($Rule.Owner)" -or ($null -ne $Rule.RemoteDynamicKeywordAddresses -and @($Rule.RemoteDynamicKeywordAddresses).Count -gt 0)) { return $false }
     # ActiveStore exposes an array, with profile-specific entries and projected
     # provider enum names such as Enforced rather than the CIM name Full.
     $enforcement=@($Rule.EnforcementStatus | ForEach-Object { "$_" })
@@ -160,27 +190,54 @@ function Test-GuardRule($Rule, $Specification) {
         "$($Rule.PrimaryStatus)" -eq 'Inactive' -and
         @($enforcement | Where-Object { $_ -in @('NoInterface','InterfaceResolutionEmpty') }).Count -gt 0 -and
         @($enforcement | Where-Object { $_ -notin @('ProfileInactive','InactiveProfile','NoInterface','InterfaceResolutionEmpty') }).Count -eq 0)
-    if (-not $active -and -not $dormant) { return $false }
-    $app = $Rule | Get-NetFirewallApplicationFilter -ErrorAction Stop
-    $interface = $Rule | Get-NetFirewallInterfaceFilter -ErrorAction Stop
+    # Duplicate is only a candidate: coverage needs a rule with the same complete
+    # scope, enforced now or prepared on a disconnected adapter. A duplicate
+    # never proves protection on its own.
+    $duplicate=($AllowDuplicate -and "$($Rule.PrimaryStatus)" -eq 'Inactive' -and
+        $enforcement -contains 'Duplicate' -and
+        @($enforcement | Where-Object { $_ -notin @('Duplicate','ProfileInactive','InactiveProfile') }).Count -eq 0)
+    if (-not $active -and -not $dormant -and -not $duplicate) { return $false }
+    $app = Get-GuardRuleFilter $Rule 'Application' $FilterCache
+    $interface = Get-GuardRuleFilter $Rule 'Interface' $FilterCache
     if (@($interface.InterfaceAlias).Count -ne 1 -or $interface.InterfaceAlias -ne $Specification.Alias) { return $false }
     if ($Specification.Program) {
         if ($app.Program -ne $Specification.Program -or "$($app.Package)" -notin @('','Any')) { return $false }
     } elseif ($app.Package -ne $Specification.Package -or "$($app.Program)" -notin @('','Any')) { return $false }
-    $port = $Rule | Get-NetFirewallPortFilter -ErrorAction Stop
-    $address = $Rule | Get-NetFirewallAddressFilter -ErrorAction Stop
-    $service = $Rule | Get-NetFirewallServiceFilter -ErrorAction Stop
-    $type = $Rule | Get-NetFirewallInterfaceTypeFilter -ErrorAction Stop
+    $port = Get-GuardRuleFilter $Rule 'Port' $FilterCache
+    $address = Get-GuardRuleFilter $Rule 'Address' $FilterCache
+    $service = Get-GuardRuleFilter $Rule 'Service' $FilterCache
+    $type = Get-GuardRuleFilter $Rule 'InterfaceType' $FilterCache
     if ("$($port.Protocol)" -ne 'Any' -or "$($port.LocalPort)" -ne 'Any' -or "$($port.RemotePort)" -ne 'Any' -or
         "$($address.LocalAddress)" -ne 'Any' -or "$($address.RemoteAddress)" -ne 'Any' -or "$($service.Service)" -ne 'Any' -or "$($type.InterfaceType)" -ne 'Any') { return $false }
+    $security = Get-GuardRuleFilter $Rule 'Security' $FilterCache
+    if ("$($security.Authentication)" -ne 'NotRequired' -or "$($security.Encryption)" -ne 'NotRequired' -or
+        "$($security.LocalUser)" -ne 'Any' -or "$($security.RemoteUser)" -ne 'Any' -or "$($security.RemoteMachine)" -ne 'Any') { return $false }
     return $true
 }
-function Assert-GuardCoverage($Specifications, [string[]]$RuleNames) {
-    $rules = @(Get-GuardRules 'ActiveStore')
+function Assert-GuardCoverage($Specifications, [string[]]$RuleNames, [switch]$DuringRefresh) {
+    $allRules = @(Get-NetFirewallRule -PolicyStore ActiveStore -ErrorAction Stop)
+    $guardRules = @($allRules | Where-Object { $_.Name -like "$script:GuardRulePrefix*" })
+    $rules = $guardRules
     if ($RuleNames) { $rules = @($rules | Where-Object { $RuleNames -contains $_.Name }) }
+    # Existing independently managed rules can cause duplicate optimization too.
+    # Keep them intact, but require the same complete scope and active enforcement.
+    # Retired Guard generations are only eligible during a transactional refresh.
+    $witnesses = @($rules) + @($allRules | Where-Object { $_.Name -notlike "$script:GuardRulePrefix*" })
+    if ($DuringRefresh) { $witnesses=$allRules }
+    # This cache lives for one verification only: every later check rereads the
+    # provider, including edits to a rule whose name did not change.
+    $filters=@{}
     foreach ($specification in @($Specifications)) {
         $covered = $false
-        foreach ($rule in $rules) { if (Test-GuardRule $rule $specification) { $covered=$true; break } }
+        foreach ($rule in $rules) {
+            if (Test-GuardRule $rule $specification -FilterCache $filters) { $covered=$true; break }
+            if (-not (Test-GuardRule $rule $specification -AllowDuplicate -FilterCache $filters)) { continue }
+            foreach ($witness in $witnesses) {
+                if ($witness.Name -ne $rule.Name -and
+                    (Test-GuardRule $witness $specification -FilterCache $filters)) { $covered=$true; break }
+            }
+            if ($covered) { break }
+        }
         if (-not $covered) { Throw-GuardCoverageChanged "Missing effective block rule on '$($specification.Alias)' for '$($specification.Program)$($specification.Package)'." }
     }
 }

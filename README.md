@@ -9,26 +9,26 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/gruskry/claude-vpn-guard/releases/tag/v1.4.0-rc.3"><img src="https://img.shields.io/badge/preview-v1.4.0--rc.3-D28A23" alt="Preview v1.4.0-rc.3"></a>
+  <a href="https://github.com/gruskry/claude-vpn-guard/releases/tag/v1.4.0-rc.4"><img src="https://img.shields.io/badge/preview-v1.4.0--rc.4-D28A23" alt="Preview v1.4.0-rc.4"></a>
   <img src="https://img.shields.io/badge/Windows-x64-0078D4" alt="Windows x64">
   <img src="https://img.shields.io/badge/PowerShell-5.1-5391FE" alt="Windows PowerShell 5.1">
 </p>
 
 <p align="center">
-  <a href="https://github.com/gruskry/claude-vpn-guard/releases/download/v1.4.0-rc.3/ClaudeVPNGuard_Installer.exe"><strong>Preview installer</strong></a>
+  <a href="https://github.com/gruskry/claude-vpn-guard/releases/download/v1.4.0-rc.4/ClaudeVPNGuard_Installer.exe"><strong>Preview installer</strong></a>
   &nbsp; · &nbsp;
-  <a href="https://github.com/gruskry/claude-vpn-guard/releases/download/v1.4.0-rc.3/claude-vpn-guard-windows.zip"><strong>Preview portable ZIP</strong></a>
+  <a href="https://github.com/gruskry/claude-vpn-guard/releases/download/v1.4.0-rc.4/claude-vpn-guard-windows.zip"><strong>Preview portable ZIP</strong></a>
   &nbsp; · &nbsp;
-  <a href="https://github.com/gruskry/claude-vpn-guard/releases/tag/v1.4.0-rc.3">Release notes</a>
+  <a href="https://github.com/gruskry/claude-vpn-guard/releases/tag/v1.4.0-rc.4">Release notes</a>
   &nbsp; · &nbsp;
-  <a href="https://github.com/gruskry/claude-vpn-guard/releases/download/v1.4.0-rc.3/SHA256SUMS.txt">SHA256 checksums</a>
+  <a href="https://github.com/gruskry/claude-vpn-guard/releases/download/v1.4.0-rc.4/SHA256SUMS.txt">SHA256 checksums</a>
 </p>
 
 ---
 
 Guard detects the active internet VPN tunnel from local routes, pins its interface GUID, and installs Windows Defender Firewall outbound blocks on the other adapters exposed by the Windows IP stack for discovered native Claude executables. The tray and terminal launchers verify the tunnel and effective rules before starting Claude and monitor the session.
 
-> **v1.4.0-rc.3 is the current preview release.** It includes the firewall interface and provider-status fixes verified with the real Windows Firewall provider. Full live VPN, DNS and IPv4/IPv6 acceptance is still pending.
+> **v1.4.0-rc.4 is the current preview release.** Duplicate-rule handling and installation-only discovery were verified with the real Windows Firewall provider and a native Claude CLI request. Real VPN disconnect/reconnect, public IPv6 egress through the VPN and DNS containment remain unverified.
 
 [Quick start](#quick-start) · [Launchers](#launchers) · [Updates](#claude-updates) · [Settings](#settings) · [Privacy](#local-diagnostic-privacy) · [DNS](#optional-dns-over-https) · [Troubleshooting](#troubleshooting) · [Scope](#scope-and-limitations) · [Build](#build)
 
@@ -37,7 +37,7 @@ Guard detects the active internet VPN tunnel from local routes, pins its interfa
 | Capability | What Guard does |
 | --- | --- |
 | **VPN detection** | Detects a recognized virtual tunnel that owns the sampled internet routes, then saves its GUID. Later refreshes preserve that selection. |
-| **Firewall setup** | Creates outbound blocks on other physical and virtual IP interfaces, including disconnected adapters and IPv6-only interfaces. Excludes service devices without an IP interface. Verifies new rules before replacing the previous setup; dormant rules require enforcement when the adapter comes up. Rules apply to both IP families. |
+| **Firewall setup** | Creates outbound blocks on other physical and virtual IP interfaces, including disconnected adapters and IPv6-only interfaces. Excludes service devices without an IP interface. Verifies new rules before replacing the previous setup and checks the committed generation again afterwards. Duplicate rules require matching active coverage, or prepared coverage on a disconnected adapter; that coverage must become enforced when the adapter comes up. Rules apply to both IP families. |
 | **Desktop & native CLI** | Provides a tray launcher, a console launcher, and a CLI launcher that preserves arguments and exit codes. |
 | **Automatic refresh** | Repairs missing coverage before launch with administrator permission and verifies it again. A running session stops on coverage failure; eligible rule changes are then refreshed for the next launch. |
 | **Session monitoring** | Refuses a new launch when coverage is incomplete; attempts to stop identified Claude processes if verification fails during a session. |
@@ -61,14 +61,14 @@ Guard detects the active internet VPN tunnel from local routes, pins its interfa
 ### Installer
 
 1. Install Claude and connect your VPN.
-2. Download and run the **[preview installer](https://github.com/gruskry/claude-vpn-guard/releases/download/v1.4.0-rc.3/ClaudeVPNGuard_Installer.exe)**. Approve the administrator prompt.
+2. Download and run the **[preview installer](https://github.com/gruskry/claude-vpn-guard/releases/download/v1.4.0-rc.4/ClaudeVPNGuard_Installer.exe)**. Approve the administrator prompt.
 3. Start Claude through **Claude (VPN Guard)**. Close Claude to end the monitored session.
 
-Firewall setup must succeed before installation proceeds. Failed setup retains the previous rules and reports an error.
+Firewall setup must succeed before installation proceeds. Failures before the state commit retain the previous rules. A failed final verification retains the committed generation for repair and blocks guarded launch.
 
 ### Portable
 
-1. Download the **[preview ZIP](https://github.com/gruskry/claude-vpn-guard/releases/download/v1.4.0-rc.3/claude-vpn-guard-windows.zip)** and extract the entire archive to a trusted folder.
+1. Download the **[preview ZIP](https://github.com/gruskry/claude-vpn-guard/releases/download/v1.4.0-rc.4/claude-vpn-guard-windows.zip)** and extract the entire archive to a trusted folder.
 2. Run `setup-firewall.cmd` and approve the administrator prompt.
 3. Start `Claude (VPN Guard).exe` or `launch-guarded.cmd`.
 
@@ -104,7 +104,7 @@ The tray's **Check firewall status** command shows the selected VPN, executable 
 Guard rediscovers Claude before every guarded launch. Network-address changes and executable-file events trigger verification; a periodic check runs one second after the previous full check finishes. It covers:
 
 - The installed Claude MSIX package.
-- Known Claude folders under `%LOCALAPPDATA%` and `%APPDATA%`.
+- Known Claude installation folders under `%LOCALAPPDATA%` and `%APPDATA%`, including versioned `app-*` folders. User workspaces, virtual environments and download caches under Claude data folders are excluded.
 - Native CLI installation paths and `claude.exe` on PATH.
 
 For a custom installation, set `desktop_path` to the exact local `Claude.exe`. Its folder's executables are included. Relative paths, network shares and links/junctions are rejected. Update the setting if that custom executable itself moves.
@@ -127,7 +127,7 @@ If a driver is unrecognized, an explicit `-VpnGuid` selection is available. Insp
 
 ### Upgrading Guard
 
-Close Claude and the previous Guard session, connect the VPN, then install **v1.4.0-rc.3** or replace the complete portable package. Installed settings are preserved. Version 1 firewall state is migrated after effective version 2 rules have been verified.
+Close Claude and the previous Guard session, connect the VPN, then install **v1.4.0-rc.4** or replace the complete portable package. Installed settings are preserved. Version 1 firewall state is migrated after effective version 2 rules have been verified.
 
 The current package includes the fix for `Desktop launch does not accept CLI arguments` on a normal Desktop launch. Update the complete package if an older installation reports this error.
 
@@ -259,7 +259,11 @@ The build requires the **.NET Framework C# compiler** and **Inno Setup 6**. Use 
 
 The build rebuilds all three artifacts and compares archived file hashes with the current files. Default artifacts are unsigned. Optional signing accepts `-CertificateThumbprint` and `-SignToolPath` for an installed code-signing certificate/private key and the Windows SDK tool; it signs the launcher, installer and uninstaller and verifies launcher/installer signatures. Actual certificate-based signing remains to be exercised.
 
-The [Windows workflow](.github/workflows/windows.yml) runs regressions, builds the installer/ZIP and uploads checksums. Tag runs prepare a release draft. The isolated suites do not run `tests/live-policy.ps1`. The real provider smoke test passed on the tested Windscribe WireGuard configuration after the service-device and rule-status fixes; this verifies temporary rule creation and filter inspection, not live traffic isolation.
+The [Windows workflow](.github/workflows/windows.yml) runs regressions, builds the installer/ZIP and uploads checksums. Tag runs prepare a release draft. The isolated suites do not run `tests/live-policy.ps1`. On the tested Windscribe WireGuard machine, Windows verified 99 rules for ten installation executables and the Claude MSIX package. A native Claude CLI request through Guard returned the expected token with tools disabled, no files, no session persistence, and no timezone or DNS changes.
+
+An isolated IPv4 HTTPS test succeeded, returned a socket access-denied error while only the probe's VPN interface was blocked, and recovered after removing that block. A separate monitor test stopped the probe 4.39 seconds after its physical-interface rule was disabled. An IPv6 TCP attempt to a documentation address through non-VPN Teredo also received an explicit socket access-denied error under the probe policy. These are observations from that test machine; the VPN stayed connected and public IPv6 HTTPS through it was not tested.
+
+DNS counters recorded port 53 traffic on physical Ethernet during a test window; they do not identify Claude as its source. System DNS settings were not changed. Full rule verification took about 23 seconds on the test machine, so monitoring delay depends on verification time as well as the polling interval.
 
 `tests/live-policy.ps1` is an administrator-only smoke test using temporary rules for a temporary probe executable. Its optional `-CheckBoundLocation` makes a third-party IP lookup through the selected VPN. Traffic loss/reconnect, IPv6, DNS and install/remove acceptance still require a controlled live test setup.
 

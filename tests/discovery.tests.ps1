@@ -21,6 +21,20 @@ try {
     # Inventory intentionally expands that alias to the executable's full path.
     $canonicalDesktop=[IO.Path]::GetFullPath($desktop)
     Assert ($inventory.Programs.Count -eq 2 -and $inventory.DesktopPaths[0] -eq $canonicalDesktop -and $inventory.PreferredDesktop -eq $canonicalDesktop) 'custom app and helper paths receive coverage'
+    $scratch=Join-Path $env:APPDATA 'Claude\scratch-workspaces\project\.venv\Scripts'
+    $cache=Join-Path $env:LOCALAPPDATA 'Claude\cache\download'
+    $version=Join-Path $env:LOCALAPPDATA 'Claude\app-1.2.3'
+    $cliVersion=Join-Path $env:APPDATA 'Claude\claude-code\1.2.3'
+    foreach ($directory in @($scratch,$cache,$version,$cliVersion)) { New-Item -ItemType Directory -Path $directory -Force | Out-Null }
+    $scratchExe=Join-Path $scratch 'python.exe'; [IO.File]::WriteAllText($scratchExe,'workspace fixture')
+    $cachedExe=Join-Path $cache 'other-app.exe'; [IO.File]::WriteAllText($cachedExe,'cache fixture')
+    foreach ($path in @((Join-Path $version 'Claude.exe'),(Join-Path $version 'helper.exe'),(Join-Path $cliVersion 'claude.exe'))) { [IO.File]::WriteAllText($path,'installation fixture') }
+    $scratchExe=(Get-Item -LiteralPath $scratchExe).FullName; $cachedExe=(Get-Item -LiteralPath $cachedExe).FullName
+    $versionHelper=(Get-Item -LiteralPath (Join-Path $version 'helper.exe')).FullName
+    $versionCli=(Get-Item -LiteralPath (Join-Path $cliVersion 'claude.exe')).FullName
+    $inventory=Get-GuardInventory
+    Assert ($inventory.Programs -notcontains $scratchExe -and $inventory.Programs -notcontains $cachedExe) 'user workspace and cache executables must not receive Claude rules'
+    Assert ($inventory.Programs -contains $versionHelper -and $inventory.Programs -contains $versionCli) 'versioned Desktop helpers and native CLI remain protected'
     foreach ($invalid in @('relative\Claude.exe','\\server\share\Claude.exe',42)) {
         @{desktop_path=$invalid} | ConvertTo-Json | Set-Content -LiteralPath $configPath -Encoding UTF8
         try { Get-GuardInventory; throw 'unexpected success' } catch { Assert ($_.Exception.Message -ne 'unexpected success') 'unsafe custom path is rejected' }
