@@ -28,7 +28,7 @@
 
 Guard detects the active internet VPN tunnel from local routes, pins its interface GUID, and installs Windows Defender Firewall outbound blocks on the other adapters exposed by the Windows IP stack for discovered native Claude executables. The tray and terminal launchers verify the tunnel and effective rules before starting Claude and monitor the session.
 
-> **v1.4.0-rc.3 is a preview.** It introduces VPN-pinned rules and automatic refresh. Live VPN, DNS and IPv4/IPv6 acceptance is still pending. The previous stable release is [v1.3.2](https://github.com/gruskry/claude-vpn-guard/releases/tag/v1.3.2).
+> **v1.4.0-rc.3 is the current preview release.** It includes the firewall interface and provider-status fixes verified with the real Windows Firewall provider. Full live VPN, DNS and IPv4/IPv6 acceptance is still pending.
 
 [Quick start](#quick-start) · [Launchers](#launchers) · [Updates](#claude-updates) · [Settings](#settings) · [Privacy](#local-diagnostic-privacy) · [DNS](#optional-dns-over-https) · [Troubleshooting](#troubleshooting) · [Scope](#scope-and-limitations) · [Build](#build)
 
@@ -129,7 +129,7 @@ If a driver is unrecognized, an explicit `-VpnGuid` selection is available. Insp
 
 Close Claude and the previous Guard session, connect the VPN, then install **v1.4.0-rc.3** or replace the complete portable package. Installed settings are preserved. Version 1 firewall state is migrated after effective version 2 rules have been verified.
 
-Version **1.3.2** fixes the `Desktop launch does not accept CLI arguments` error on a normal Desktop launch. If you see it in v1.3.1, update the complete package.
+The current package includes the fix for `Desktop launch does not accept CLI arguments` on a normal Desktop launch. Update the complete package if an older installation reports this error.
 
 ## Settings
 
@@ -197,7 +197,7 @@ Older releases did not save DNS backups. Their original settings must be restore
 
 | Situation | Next step |
 | --- | --- |
-| **Desktop launch does not accept CLI arguments** | Update to v1.3.2. Version 1.3.1 incorrectly treated an omitted argument list as a supplied CLI argument. |
+| **Desktop launch does not accept CLI arguments** | Update to the current complete package. An older launcher incorrectly treated an omitted argument list as a supplied CLI argument. |
 | **Coverage check fails after a Claude update** | Close Claude and relaunch Guard; approve automatic refresh, or use the tray repair command. |
 | **An adapter was added or renamed** | Automatic refresh updates current matching rules after Claude is closed. |
 | **No active VPN / saved VPN route changed** | Connect the saved full-tunnel VPN; explicitly reselect it if you changed VPN providers/adapters. |
