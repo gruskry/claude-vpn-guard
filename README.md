@@ -9,26 +9,26 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/gruskry/claude-vpn-guard/releases/tag/v1.4.0-rc.2"><img src="https://img.shields.io/badge/preview-v1.4.0--rc.2-D28A23" alt="Preview v1.4.0-rc.2"></a>
+  <a href="https://github.com/gruskry/claude-vpn-guard/releases/tag/v1.4.0-rc.3"><img src="https://img.shields.io/badge/preview-v1.4.0--rc.3-D28A23" alt="Preview v1.4.0-rc.3"></a>
   <img src="https://img.shields.io/badge/Windows-x64-0078D4" alt="Windows x64">
   <img src="https://img.shields.io/badge/PowerShell-5.1-5391FE" alt="Windows PowerShell 5.1">
 </p>
 
 <p align="center">
-  <a href="https://github.com/gruskry/claude-vpn-guard/releases/download/v1.4.0-rc.2/ClaudeVPNGuard_Installer.exe"><strong>Preview installer</strong></a>
+  <a href="https://github.com/gruskry/claude-vpn-guard/releases/download/v1.4.0-rc.3/ClaudeVPNGuard_Installer.exe"><strong>Preview installer</strong></a>
   &nbsp; · &nbsp;
-  <a href="https://github.com/gruskry/claude-vpn-guard/releases/download/v1.4.0-rc.2/claude-vpn-guard-windows.zip"><strong>Preview portable ZIP</strong></a>
+  <a href="https://github.com/gruskry/claude-vpn-guard/releases/download/v1.4.0-rc.3/claude-vpn-guard-windows.zip"><strong>Preview portable ZIP</strong></a>
   &nbsp; · &nbsp;
-  <a href="https://github.com/gruskry/claude-vpn-guard/releases/tag/v1.4.0-rc.2">Release notes</a>
+  <a href="https://github.com/gruskry/claude-vpn-guard/releases/tag/v1.4.0-rc.3">Release notes</a>
   &nbsp; · &nbsp;
-  <a href="https://github.com/gruskry/claude-vpn-guard/releases/download/v1.4.0-rc.2/SHA256SUMS.txt">SHA256 checksums</a>
+  <a href="https://github.com/gruskry/claude-vpn-guard/releases/download/v1.4.0-rc.3/SHA256SUMS.txt">SHA256 checksums</a>
 </p>
 
 ---
 
-Guard detects the active internet VPN tunnel from local routes, pins its interface GUID, and installs Windows Defender Firewall outbound blocks on the other enumerated adapters for discovered native Claude executables. The tray and terminal launchers verify the tunnel and effective rules before starting Claude and monitor the session.
+Guard detects the active internet VPN tunnel from local routes, pins its interface GUID, and installs Windows Defender Firewall outbound blocks on the other adapters exposed by the Windows IP stack for discovered native Claude executables. The tray and terminal launchers verify the tunnel and effective rules before starting Claude and monitor the session.
 
-> **v1.4.0-rc.2 is a preview.** It introduces VPN-pinned rules and automatic refresh. Live VPN, DNS and IPv4/IPv6 acceptance is still pending. The previous stable release is [v1.3.2](https://github.com/gruskry/claude-vpn-guard/releases/tag/v1.3.2).
+> **v1.4.0-rc.3 is a preview.** It introduces VPN-pinned rules and automatic refresh. Live VPN, DNS and IPv4/IPv6 acceptance is still pending. The previous stable release is [v1.3.2](https://github.com/gruskry/claude-vpn-guard/releases/tag/v1.3.2).
 
 [Quick start](#quick-start) · [Launchers](#launchers) · [Updates](#claude-updates) · [Settings](#settings) · [Privacy](#local-diagnostic-privacy) · [DNS](#optional-dns-over-https) · [Troubleshooting](#troubleshooting) · [Scope](#scope-and-limitations) · [Build](#build)
 
@@ -37,7 +37,7 @@ Guard detects the active internet VPN tunnel from local routes, pins its interfa
 | Capability | What Guard does |
 | --- | --- |
 | **VPN detection** | Detects a recognized virtual tunnel that owns the sampled internet routes, then saves its GUID. Later refreshes preserve that selection. |
-| **Firewall setup** | Creates outbound blocks on the other enumerated physical and virtual adapters; verifies new rules before replacing the previous setup. Rules apply to both IP families. |
+| **Firewall setup** | Creates outbound blocks on other physical and virtual IP interfaces, including disconnected adapters and IPv6-only interfaces. Excludes service devices without an IP interface. Verifies new rules before replacing the previous setup; dormant rules require enforcement when the adapter comes up. Rules apply to both IP families. |
 | **Desktop & native CLI** | Provides a tray launcher, a console launcher, and a CLI launcher that preserves arguments and exit codes. |
 | **Automatic refresh** | Repairs missing coverage before launch with administrator permission and verifies it again. A running session stops on coverage failure; eligible rule changes are then refreshed for the next launch. |
 | **Session monitoring** | Refuses a new launch when coverage is incomplete; attempts to stop identified Claude processes if verification fails during a session. |
@@ -61,14 +61,14 @@ Guard detects the active internet VPN tunnel from local routes, pins its interfa
 ### Installer
 
 1. Install Claude and connect your VPN.
-2. Download and run the **[preview installer](https://github.com/gruskry/claude-vpn-guard/releases/download/v1.4.0-rc.2/ClaudeVPNGuard_Installer.exe)**. Approve the administrator prompt.
+2. Download and run the **[preview installer](https://github.com/gruskry/claude-vpn-guard/releases/download/v1.4.0-rc.3/ClaudeVPNGuard_Installer.exe)**. Approve the administrator prompt.
 3. Start Claude through **Claude (VPN Guard)**. Close Claude to end the monitored session.
 
 Firewall setup must succeed before installation proceeds. Failed setup retains the previous rules and reports an error.
 
 ### Portable
 
-1. Download the **[preview ZIP](https://github.com/gruskry/claude-vpn-guard/releases/download/v1.4.0-rc.2/claude-vpn-guard-windows.zip)** and extract the entire archive to a trusted folder.
+1. Download the **[preview ZIP](https://github.com/gruskry/claude-vpn-guard/releases/download/v1.4.0-rc.3/claude-vpn-guard-windows.zip)** and extract the entire archive to a trusted folder.
 2. Run `setup-firewall.cmd` and approve the administrator prompt.
 3. Start `Claude (VPN Guard).exe` or `launch-guarded.cmd`.
 
@@ -127,7 +127,7 @@ If a driver is unrecognized, an explicit `-VpnGuid` selection is available. Insp
 
 ### Upgrading Guard
 
-Close Claude and the previous Guard session, connect the VPN, then install **v1.4.0-rc.2** or replace the complete portable package. Installed settings are preserved. Version 1 firewall state is migrated after effective version 2 rules have been verified.
+Close Claude and the previous Guard session, connect the VPN, then install **v1.4.0-rc.3** or replace the complete portable package. Installed settings are preserved. Version 1 firewall state is migrated after effective version 2 rules have been verified.
 
 Version **1.3.2** fixes the `Desktop launch does not accept CLI arguments` error on a normal Desktop launch. If you see it in v1.3.1, update the complete package.
 
@@ -259,7 +259,7 @@ The build requires the **.NET Framework C# compiler** and **Inno Setup 6**. Use 
 
 The build rebuilds all three artifacts and compares archived file hashes with the current files. Default artifacts are unsigned. Optional signing accepts `-CertificateThumbprint` and `-SignToolPath` for an installed code-signing certificate/private key and the Windows SDK tool; it signs the launcher, installer and uninstaller and verifies launcher/installer signatures. Actual certificate-based signing remains to be exercised.
 
-The [Windows workflow](.github/workflows/windows.yml) runs regressions, builds the installer/ZIP and uploads checksums. Tag runs prepare a release draft. The isolated suites do not run `tests/live-policy.ps1`.
+The [Windows workflow](.github/workflows/windows.yml) runs regressions, builds the installer/ZIP and uploads checksums. Tag runs prepare a release draft. The isolated suites do not run `tests/live-policy.ps1`. The real provider smoke test passed on the tested Windscribe WireGuard configuration after the service-device and rule-status fixes; this verifies temporary rule creation and filter inspection, not live traffic isolation.
 
 `tests/live-policy.ps1` is an administrator-only smoke test using temporary rules for a temporary probe executable. Its optional `-CheckBoundLocation` makes a third-party IP lookup through the selected VPN. Traffic loss/reconnect, IPv6, DNS and install/remove acceptance still require a controlled live test setup.
 

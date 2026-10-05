@@ -68,6 +68,31 @@ Invoke-GuardFirewallSetup
 Assert ($script:rules.Count -eq 2 -and $script:rules.Name -notcontains 'Claude-VPN-Guard-Block-old') 'successful swap removes previous generation'
 Assert ($script:events.IndexOf('commit') -lt $script:events.IndexOf('remove:Claude-VPN-Guard-Block-old')) 'commit precedes old removal'
 Write-Host 'PASS: complete effective generation is committed before removal'
+$spec=[pscustomobject]@{Alias='Ethernet';Program='C:\Claude\claude.exe';Package=$null;InterfaceStatus='Up'}
+$providerRule=$script:rules[0] | Select-Object *
+$providerRule.Package=''
+$providerRule.EnforcementStatus=@('ProfileInactive','Enforced','Enforced')
+Assert (Test-GuardRule $providerRule $spec) 'real ActiveStore enforcement array and empty unrestricted package are accepted'
+$providerRule.EnforcementStatus=@('ProfileInactive')
+Assert (-not (Test-GuardRule $providerRule $spec)) 'inactive profiles alone do not prove active coverage'
+$providerRule.EnforcementStatus=@('Enforced','LocalFirewallRulesDisallowed')
+Assert (-not (Test-GuardRule $providerRule $spec)) 'a policy rejection is not hidden by another enforced status'
+$providerRule.PrimaryStatus='Inactive'; $providerRule.EnforcementStatus=@('ProfileInactive','NoInterface')
+Assert (-not (Test-GuardRule $providerRule $spec)) 'a missing interface on an up adapter blocks verification'
+$spec.InterfaceStatus='Disconnected'
+Assert (Test-GuardRule $providerRule $spec) 'dormant rules on disconnected IP adapters can be prepared'
+$spec.InterfaceStatus='Up'
+Assert (-not (Test-GuardRule $providerRule $spec)) 'a reconnected adapter needs enforced coverage'
+$spec.InterfaceStatus='Disconnected'; $providerRule.EnforcementStatus=@('ProfileInactive','NoInterface','LocalFirewallRulesDisallowed')
+Assert (-not (Test-GuardRule $providerRule $spec)) 'disconnected status does not hide a policy failure'
+$providerRule.PrimaryStatus='OK'; $providerRule.EnforcementStatus=@('Enforced'); $providerRule.Package='S-1-15-2-999'
+Assert (-not (Test-GuardRule $providerRule $spec)) 'a package-scoped program rule does not cover the unrestricted executable'
+$providerRule.Package='S-1-15-2-123'; $providerRule.Program=''
+$packageSpec=[pscustomobject]@{Alias='Ethernet';Program=$null;Package='S-1-15-2-123';InterfaceStatus='Up'}
+Assert (Test-GuardRule $providerRule $packageSpec) 'real empty program filter with an exact package SID is accepted'
+$providerRule.Package='S-1-15-2-999'
+Assert (-not (Test-GuardRule $providerRule $packageSpec)) 'a different package SID cannot satisfy coverage'
+Write-Host 'PASS: real provider representations, disconnected preparation and fail-closed enforcement checks'
 $script:rules[0].Enabled='False'
 try { Assert-GuardCoverage @(Get-GuardSpecifications (Get-GuardInventory) (Get-GuardAdapters)) @($script:state.Rules); throw 'unexpected success' }
 catch { Assert ($_.Exception.Message -ne 'unexpected success') 'disabled rule must fail verification' }

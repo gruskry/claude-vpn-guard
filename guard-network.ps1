@@ -25,7 +25,17 @@ function Get-GuardVpnAdapter([string]$PinnedGuid) {
     $vpn
 }
 function Get-GuardBlockedAdapters($Vpn) {
-    @(Get-GuardNetworkAdapters | Where-Object { [guid]$_.InterfaceGuid -ne [guid]$Vpn.InterfaceGuid })
+    $adapters=@(Get-GuardNetworkAdapters)
+    # Hidden device inventory includes WAN miniports and switch internals without
+    # IP interfaces. Windows Firewall cannot bind rules to those device aliases.
+    # Keep both IP families and disconnected interfaces; re-enumerate every check
+    # so a newly exposed IP interface immediately requires verified coverage.
+    $interfaces=@(Get-NetIPInterface -ErrorAction Stop)
+    $indices=@($interfaces | ForEach-Object { $_.InterfaceIndex } | Sort-Object -Unique)
+    if ($indices -notcontains $Vpn.ifIndex) { throw 'The VPN IP interface disappeared during discovery. Reconnect the VPN and retry.' }
+    @($adapters | Where-Object {
+        [guid]$_.InterfaceGuid -ne [guid]$Vpn.InterfaceGuid -and $indices -contains $_.ifIndex
+    })
 }
 function Assert-GuardNoProxy {
     foreach ($name in @('HTTP_PROXY','HTTPS_PROXY','ALL_PROXY')) {

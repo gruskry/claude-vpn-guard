@@ -142,19 +142,31 @@ function Assert-GuardProfiles {
 }
 function Get-GuardSpecifications($Inventory, $Adapters) {
     foreach ($adapter in @($Adapters)) {
-        foreach ($program in @($Inventory.Programs)) { [pscustomobject]@{ Alias=$adapter.Name; Guid="$($adapter.InterfaceGuid)"; Program=$program; Package=$null } }
-        foreach ($package in @($Inventory.Packages)) { [pscustomobject]@{ Alias=$adapter.Name; Guid="$($adapter.InterfaceGuid)"; Program=$null; Package=$package.Sid } }
+        foreach ($program in @($Inventory.Programs)) { [pscustomobject]@{ Alias=$adapter.Name; Guid="$($adapter.InterfaceGuid)"; InterfaceStatus="$($adapter.Status)"; Program=$program; Package=$null } }
+        foreach ($package in @($Inventory.Packages)) { [pscustomobject]@{ Alias=$adapter.Name; Guid="$($adapter.InterfaceGuid)"; InterfaceStatus="$($adapter.Status)"; Program=$null; Package=$package.Sid } }
     }
 }
 function Test-GuardRule($Rule, $Specification) {
     if ("$($Rule.Enabled)" -ne 'True' -or "$($Rule.Direction)" -ne 'Outbound' -or "$($Rule.Action)" -ne 'Block' -or "$($Rule.Profile)" -ne 'Any') { return $false }
-    if ("$($Rule.PrimaryStatus)" -ne 'OK' -or "$($Rule.EnforcementStatus)" -notin @('Full', 'NotApplicable')) { return $false }
+    # ActiveStore exposes an array, with profile-specific entries and projected
+    # provider enum names such as Enforced rather than the CIM name Full.
+    $enforcement=@($Rule.EnforcementStatus | ForEach-Object { "$_" })
+    $active=("$($Rule.PrimaryStatus)" -eq 'OK' -and
+        @($enforcement | Where-Object { $_ -in @('Enforced','Full','NotApplicable') }).Count -gt 0 -and
+        @($enforcement | Where-Object { $_ -notin @('Enforced','Full','NotApplicable','ProfileInactive','InactiveProfile') }).Count -eq 0)
+    # A disconnected adapter cannot carry IP traffic, but its rules must be
+    # prepared. Once it is up, periodic verification requires active enforcement.
+    $dormant=("$($Specification.InterfaceStatus)" -in @('Disconnected','Disabled','Not Present') -and
+        "$($Rule.PrimaryStatus)" -eq 'Inactive' -and
+        @($enforcement | Where-Object { $_ -in @('NoInterface','InterfaceResolutionEmpty') }).Count -gt 0 -and
+        @($enforcement | Where-Object { $_ -notin @('ProfileInactive','InactiveProfile','NoInterface','InterfaceResolutionEmpty') }).Count -eq 0)
+    if (-not $active -and -not $dormant) { return $false }
     $app = $Rule | Get-NetFirewallApplicationFilter -ErrorAction Stop
     $interface = $Rule | Get-NetFirewallInterfaceFilter -ErrorAction Stop
     if (@($interface.InterfaceAlias).Count -ne 1 -or $interface.InterfaceAlias -ne $Specification.Alias) { return $false }
     if ($Specification.Program) {
-        if ($app.Program -ne $Specification.Program -or "$($app.Package)" -ne 'Any') { return $false }
-    } elseif ($app.Package -ne $Specification.Package -or "$($app.Program)" -ne 'Any') { return $false }
+        if ($app.Program -ne $Specification.Program -or "$($app.Package)" -notin @('','Any')) { return $false }
+    } elseif ($app.Package -ne $Specification.Package -or "$($app.Program)" -notin @('','Any')) { return $false }
     $port = $Rule | Get-NetFirewallPortFilter -ErrorAction Stop
     $address = $Rule | Get-NetFirewallAddressFilter -ErrorAction Stop
     $service = $Rule | Get-NetFirewallServiceFilter -ErrorAction Stop

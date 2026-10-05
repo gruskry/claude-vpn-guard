@@ -8,6 +8,17 @@ $script:virtual=[pscustomobject]@{Name='LAN VPN';InterfaceGuid='{33333333-3333-3
 $script:adapters=@($script:tunnel,$script:physical,$script:virtual)
 $script:routeIndex=4
 function Get-NetAdapter { [CmdletBinding()]param([switch]$IncludeHidden); $script:adapters }
+$script:ipInterfaces=@(
+    [pscustomobject]@{InterfaceIndex=4;AddressFamily='IPv4'},
+    [pscustomobject]@{InterfaceIndex=4;AddressFamily='IPv6'},
+    [pscustomobject]@{InterfaceIndex=5;AddressFamily='IPv4'},
+    [pscustomobject]@{InterfaceIndex=6;AddressFamily='IPv4'}
+)
+$script:failIPDiscovery=$false
+function Get-NetIPInterface { [CmdletBinding()]param($AddressFamily)
+    if ($script:failIPDiscovery) { throw 'Injected IP interface provider failure' }
+    @($script:ipInterfaces | Where-Object { -not $AddressFamily -or $_.AddressFamily -eq $AddressFamily })
+}
 function Find-NetRoute { [CmdletBinding()]param($RemoteIPAddress)
     [pscustomobject]@{InterfaceIndex=$script:routeIndex;IPAddress='10.0.0.2'}
     [pscustomobject]@{InterfaceIndex=$script:routeIndex;DestinationPrefix='0.0.0.0/0'}
@@ -17,6 +28,28 @@ $vpn=Get-GuardVpnAdapter
 Assert ($vpn.ifIndex -eq 4) 'select the internet tunnel, not another virtual LAN'
 $blocked=@(Get-GuardBlockedAdapters $vpn)
 Assert ($blocked.Count -eq 2 -and $blocked.ifIndex -contains 6) 'other virtual adapters are blocked too'
+$script:adapters+=@(
+    [pscustomobject]@{Name='WAN Miniport';InterfaceGuid='{44444444-4444-4444-4444-444444444444}';ifIndex=7;HardwareInterface=$false;Status='Up'},
+    [pscustomobject]@{Name='IPv6 tunnel';InterfaceGuid='{55555555-5555-5555-5555-555555555555}';ifIndex=8;HardwareInterface=$false;Status='Up'},
+    [pscustomobject]@{Name='Disconnected Wi-Fi';InterfaceGuid='{66666666-6666-6666-6666-666666666666}';ifIndex=9;HardwareInterface=$true;Status='Disconnected'}
+)
+$script:ipInterfaces+=@(
+    [pscustomobject]@{InterfaceIndex=8;AddressFamily='IPv6'},
+    [pscustomobject]@{InterfaceIndex=9;AddressFamily='IPv4'}
+)
+$blocked=@(Get-GuardBlockedAdapters $vpn)
+Assert ($blocked.Count -eq 4 -and $blocked.ifIndex -notcontains 7) 'non-IP service devices do not break firewall setup'
+Assert ($blocked.ifIndex -contains 8 -and $blocked.ifIndex -contains 9) 'IPv6-only and disconnected IP adapters retain coverage'
+$script:ipInterfaces+=[pscustomobject]@{InterfaceIndex=7;AddressFamily='IPv4'}
+Assert (@(Get-GuardBlockedAdapters $vpn).ifIndex -contains 7) 'a device acquiring an IP interface requires coverage on the next check'
+$script:failIPDiscovery=$true
+try { Get-GuardBlockedAdapters $vpn; throw 'unexpected success' } catch { Assert ($_.Exception.Message -ne 'unexpected success') 'IP interface discovery failure must fail closed' }
+$script:failIPDiscovery=$false
+$savedInterfaces=$script:ipInterfaces
+$script:ipInterfaces=@($savedInterfaces | Where-Object InterfaceIndex -ne 4)
+try { Get-GuardBlockedAdapters $vpn; throw 'unexpected success' } catch { Assert ($_.Exception.Message -ne 'unexpected success') 'a vanished VPN IP interface must fail closed' }
+$script:ipInterfaces=$savedInterfaces
+Write-Host 'PASS: service-device exclusion, IPv6/disconnected coverage, newly exposed IP interface and discovery failures'
 $script:routeIndex=5
 try { Get-GuardVpnAdapter; throw 'unexpected success' } catch { Assert ($_.Exception.Message -ne 'unexpected success') 'direct physical route refuses automatic VPN detection' }
 $script:routeIndex=6
