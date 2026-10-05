@@ -1,0 +1,73 @@
+name: Windows checks and packages
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: windows-2022
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - name: Isolated Windows PowerShell 5.1 regressions
+        shell: powershell
+        run: ./tests/run.ps1
+      - name: Install Inno Setup
+        shell: powershell
+        run: choco install innosetup --yes --no-progress --limit-output
+      - name: Build and verify portable package
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $inno = @((Join-Path ${env:ProgramFiles(x86)} 'Inno Setup 6\ISCC.exe'), (Join-Path $env:ProgramFiles 'Inno Setup 6\ISCC.exe'), "$env:LOCALAPPDATA\Programs\Inno Setup 6\ISCC.exe")
+          $compiler = $inno | Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1
+          if (-not $compiler) { throw 'Inno Setup 6 compiler not found.' }
+          ./build.ps1 -InnoCompiler $compiler
+          New-Item -ItemType Directory -Path dist | Out-Null
+          Copy-Item -LiteralPath 'Output\ClaudeVPNGuard_Installer.exe','claude-vpn-guard-windows.zip' -Destination dist
+          $lines = @('ClaudeVPNGuard_Installer.exe','claude-vpn-guard-windows.zip') | ForEach-Object {
+            (Get-FileHash -LiteralPath (Join-Path dist $_) -Algorithm SHA256).Hash.ToLowerInvariant() + '  ' + $_
+          }
+          $lines | Set-Content -LiteralPath dist/SHA256SUMS.txt -Encoding ASCII
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: windows-package
+          path: dist/*
+          if-no-files-found: error
+          retention-days: 14
+
+  release-draft:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: windows-2022
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: windows-package
+          path: dist
+      - name: Prepare release draft
+        shell: powershell
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          gh api "repos/$env:GITHUB_REPOSITORY/releases?per_page=100" > releases.json
+          if ($LASTEXITCODE -ne 0) { throw 'Could not inspect existing releases.' }
+          $releases = Get-Content -LiteralPath releases.json -Raw | ConvertFrom-Json
+          if (@($releases | Where-Object { $_.tag_name -eq $env:RELEASE_TAG }).Count) { Write-Host 'Release already exists; assets were preserved.'; exit 0 }
+          $body = "Windows packages built after isolated regression checks. Live VPN, DNS, IPv4/IPv6 and install/remove acceptance remains separate. Packages are unsigned unless the release maintainer signs them with a code-signing certificate."
+          $body | Set-Content -LiteralPath release-notes.txt -Encoding UTF8
+          gh release create $env:RELEASE_TAG dist/ClaudeVPNGuard_Installer.exe dist/claude-vpn-guard-windows.zip dist/SHA256SUMS.txt --repo $env:GITHUB_REPOSITORY --verify-tag --draft --title "Claude VPN Guard $env:RELEASE_TAG" --notes-file release-notes.txt
+          if ($LASTEXITCODE -ne 0) { throw 'Release draft creation failed.' }

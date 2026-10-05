@@ -8,6 +8,8 @@ $script:failSave = $false
 $script:enabled = $true
 function Assert($Condition, $Message) { if (-not $Condition) { throw "FAIL: $Message" } }
 function Get-GuardAdapters { @([pscustomobject]@{Name='Ethernet';InterfaceGuid='adapter-1'}) }
+function Get-GuardVpnAdapter { [pscustomobject]@{Name='Tunnel';InterfaceGuid='{11111111-1111-1111-1111-111111111111}';ifIndex=4} }
+function Assert-GuardNoProxy { }
 function Get-GuardInventory { [pscustomobject]@{Programs=@('C:\Claude\claude.exe');Packages=@([pscustomobject]@{Sid='S-1-15-2-123'});CliPath='C:\Claude\claude.exe'} }
 function Get-NetFirewallProfile { [CmdletBinding()]param($PolicyStore)
     1..3 | ForEach-Object { [pscustomobject]@{Enabled=$script:enabled;AllowLocalFirewallRules='NotConfigured'} }
@@ -15,12 +17,12 @@ function Get-NetFirewallProfile { [CmdletBinding()]param($PolicyStore)
 function Get-NetFirewallRule { [CmdletBinding()]param($Name,$PolicyStore)
     @($script:rules | Where-Object { -not $Name -or $_.Name -like $Name })
 }
-function New-NetFirewallRule { [CmdletBinding()]param($Name,$DisplayName,$Direction,$Action,$Profile,$InterfaceAlias,$Enabled,$PolicyStore,$Program,$Package)
+function New-NetFirewallRule { [CmdletBinding()]param($Name,$DisplayName,$Direction,$Action,$Profile,$InterfaceAlias,$Enabled,$PolicyStore,$Program,$Package,$RemoteAddress)
     $script:created++
     if ($script:failCreate -eq $script:created) { throw 'Injected provider error' }
     Assert (-not $Package -or $Package -like 'S-1-*') 'package filter must be SID'
     $script:events += "create:$Name"
-    $script:rules += [pscustomobject]@{Name=$Name;Enabled=$Enabled;Direction=$Direction;Action=$Action;Profile=$Profile;PrimaryStatus='OK';EnforcementStatus='Full';Program=$(if($Program){$Program}else{'Any'});Package=$(if($Package){$Package}else{'Any'});Alias=$InterfaceAlias}
+    $script:rules += [pscustomobject]@{Name=$Name;Enabled=$Enabled;Direction=$Direction;Action=$Action;Profile=$Profile;PrimaryStatus='OK';EnforcementStatus='Full';Program=$(if($Program){$Program}else{'Any'});Package=$(if($Package){$Package}else{'Any'});Alias=$(if($InterfaceAlias){$InterfaceAlias}else{'Any'});RemoteAddress=$(if($RemoteAddress){$RemoteAddress}else{'Any'})}
 }
 function Remove-NetFirewallRule { [CmdletBinding()]param([Parameter(ValueFromPipeline=$true)]$InputObject)
     process { $script:events += "remove:$($InputObject.Name)"; $script:rules = @($script:rules | Where-Object Name -ne $InputObject.Name) }
@@ -35,7 +37,7 @@ function Get-NetFirewallPortFilter { [CmdletBinding()]param([Parameter(ValueFrom
     process { [pscustomobject]@{Protocol='Any';LocalPort='Any';RemotePort='Any'} }
 }
 function Get-NetFirewallAddressFilter { [CmdletBinding()]param([Parameter(ValueFromPipeline=$true)]$InputObject)
-    process { [pscustomobject]@{LocalAddress='Any';RemoteAddress='Any'} }
+    process { [pscustomobject]@{LocalAddress='Any';RemoteAddress=$InputObject.RemoteAddress} }
 }
 function Get-NetFirewallServiceFilter { [CmdletBinding()]param([Parameter(ValueFromPipeline=$true)]$InputObject)
     process { [pscustomobject]@{Service='Any'} }

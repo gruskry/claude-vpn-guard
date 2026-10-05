@@ -30,7 +30,7 @@ try {
     $source=Join-Path $script:testDirectory 'Args.cs'; $exe=Join-Path $script:testDirectory 'Argument Dump.exe'
     @'
 using System; using System.IO;
-class ArgDump { static int Main(string[] args) { File.WriteAllLines(args[0], Array.ConvertAll(args, x => Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes(x)))); return 17; } }
+class ArgDump { static int Main(string[] args) { File.WriteAllLines(args[0], Array.ConvertAll(args, x => Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes(x)))); File.WriteAllLines(args[0]+".env",new[]{Environment.GetEnvironmentVariable("DISABLE_TELEMETRY")??"",Environment.GetEnvironmentVariable("DISABLE_ERROR_REPORTING")??""}); return 17; } }
 '@ | Set-Content -LiteralPath $source -Encoding UTF8
     & "$env:SystemRoot\Microsoft.NET\Framework64\v4.0.30319\csc.exe" /nologo /target:exe "/out:$exe" $source
     Assert ($LASTEXITCODE -eq 0) 'argument test executable compiled'
@@ -43,6 +43,15 @@ class ArgDump { static int Main(string[] args) { File.WriteAllLines(args[0], Arr
     Assert ($actual.Count -eq $arguments.Count) 'all arguments forwarded'
     for ($i=0; $i -lt $arguments.Count; $i++) { Assert ($actual[$i] -ceq $arguments[$i]) "argument $i unchanged" }
     Write-Host 'PASS: CLI spaces, quotes, empty arguments, trailing backslash, Unicode, exit code'
+    $originalTelemetry=$env:DISABLE_TELEMETRY; $originalErrors=$env:DISABLE_ERROR_REPORTING
+    try {
+        $env:DISABLE_TELEMETRY='parent-value'; $env:DISABLE_ERROR_REPORTING='parent-errors'
+        $process=Start-GuardNativeProcess $exe $arguments -DisableTelemetry; $process.WaitForExit()
+        $flags=@(Get-Content -LiteralPath ($output+'.env'))
+        Assert ($flags[0] -eq '1' -and $flags[1] -eq '1') 'child process receives privacy flags'
+        Assert ($env:DISABLE_TELEMETRY -eq 'parent-value' -and $env:DISABLE_ERROR_REPORTING -eq 'parent-errors') 'caller environment is unchanged'
+        Write-Host 'PASS: CLI telemetry opt-out is scoped to the launched process'
+    } finally { $env:DISABLE_TELEMETRY=$originalTelemetry; $env:DISABLE_ERROR_REPORTING=$originalErrors }
     # Also exercise the script entry boundary: an advanced parameter block consumes
     # Claude's -p as PowerShell's PipelineVariable, even if native quoting is correct.
     $entry=Join-Path $script:testDirectory 'CLI entry.ps1'

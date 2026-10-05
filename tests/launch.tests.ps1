@@ -38,3 +38,10 @@ try { Invoke-GuardLaunch -NoTimezoneChange; throw 'unexpected success' }
 catch { Assert ($_.Exception.Message -ne 'unexpected success') 'incomplete protection blocks launch' }
 Assert ($script:started -eq 0) 'preflight failure never starts Claude'
 Write-Host 'PASS: incomplete protection blocks process creation'
+$script:started=0; $script:stoppedNew=$false
+function Get-GuardProtectionStatus { [pscustomobject]@{Ok=$true;Inventory=$script:old} }
+function Get-GuardRunningProcesses($Inventory) { if ($script:started) { throw 'Injected process provider failure' } }
+try { Invoke-GuardLaunch -NoTimezoneChange; throw 'unexpected success' }
+catch { Assert ($_.Exception.Message -ne 'unexpected success') 'monitor provider failure must fail session' }
+Assert $script:stoppedNew 'unexpected monitor failure stops known Claude processes'
+Write-Host 'PASS: process inspection failure also stops Claude'

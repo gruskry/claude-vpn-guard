@@ -9,7 +9,9 @@ else {
 }
 $script:responses = @()
 $script:index = 0
-function Invoke-RestMethod { param($Uri, $TimeoutSec, $Headers, $ErrorAction)
+function Get-GuardVpnSourceAddress { '10.0.0.2' }
+function Invoke-GuardBoundLocationRequest { param($Uri, $SourceAddress)
+    if ($SourceAddress -ne '10.0.0.2') { throw 'request must bind the VPN source' }
     $response = $script:responses[$script:index % $script:responses.Count]
     $script:index++
     if ($response -is [Exception]) { throw $response }
@@ -18,7 +20,7 @@ function Invoke-RestMethod { param($Uri, $TimeoutSec, $Headers, $ErrorAction)
 $failed = 0
 function Check-Location($name, $responses, $country) {
     $script:responses = $responses; $script:index = 0
-    $actual = Get-PublicIPLocation
+    $actual = Get-PublicIPLocation ([pscustomobject]@{ifIndex=4})
     if (($null -eq $country -and $null -ne $actual) -or ($null -ne $country -and $actual.CountryCode -ne $country)) {
         $script:failed++; Write-Host "FAIL: $name" -ForegroundColor Red
     } else { Write-Host "PASS: $name" }

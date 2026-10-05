@@ -1,5 +1,10 @@
 {
     "target_timezone": "Georgian Standard Time",
     "auto_detect": true,
-    "change_timezone": true
+    "change_timezone": true,
+    "auto_refresh": true,
+    "disable_cli_telemetry": true,
+    "clean_diagnostics_before_launch": true,
+    "diagnostic_log": true,
+    "desktop_path": ""
 }

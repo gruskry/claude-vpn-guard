@@ -8,8 +8,8 @@ using System.Windows.Forms;
 using System.Web.Script.Serialization;
 using System.Collections.Generic;
 
-[assembly: System.Reflection.AssemblyVersion("1.3.2.0")]
-[assembly: System.Reflection.AssemblyFileVersion("1.3.2.0")]
+[assembly: System.Reflection.AssemblyVersion("1.4.0.0")]
+[assembly: System.Reflection.AssemblyFileVersion("1.4.0.0")]
 
 namespace ClaudeGuard
 {
@@ -20,6 +20,8 @@ namespace ClaudeGuard
         static Form dispatcher;
         static Process supervisor;
         static volatile bool completed;
+        static volatile bool sessionRunning;
+        static volatile bool maintenanceRunning;
         static readonly string BaseDirectory = AppDomain.CurrentDomain.BaseDirectory;
 
         [STAThread]
@@ -38,16 +40,63 @@ namespace ClaudeGuard
                 tray.Text = "Claude Guard: checking launch";
                 tray.Visible = true;
                 var menu = new ContextMenu();
+                menu.MenuItems.Add("Start guarded Claude", (s, e) => BeginSession());
                 menu.MenuItems.Add("Check firewall status", (s, e) => CheckStatus());
-                menu.MenuItems.Add("Exit after Claude closes", (s, e) =>
-                    MessageBox.Show("Close Claude to end this session and restore the timezone. Monitoring stays active until then.", "Claude Guard"));
+                menu.MenuItems.Add("Repair firewall rules", (s, e) => RunMaintenance("setup-firewall.ps1", "-NonInteractive"));
+                menu.MenuItems.Add("Audit local diagnostic metadata", (s, e) => RunMaintenance("guard-privacy.ps1", ""));
+                menu.MenuItems.Add("Clean local diagnostic metadata", (s, e) => RunMaintenance("guard-privacy.ps1", "-Clean"));
+                menu.MenuItems.Add("Restore diagnostic backup", (s, e) => {
+                    if (sessionRunning || maintenanceRunning) { MessageBox.Show("Close Claude and finish maintenance before restoring a backup.", "Claude Guard"); return; }
+                    using (var dialog = new OpenFileDialog()) {
+                        dialog.Title = "Select an encrypted diagnostic backup";
+                        dialog.InitialDirectory = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), @"ClaudeVPNGuard\privacy-backups");
+                        dialog.Filter = "Encrypted backup (*.bin)|*.bin";
+                        if (dialog.ShowDialog() == DialogResult.OK) RunMaintenance("guard-privacy.ps1", "-RestoreBackup \"" + dialog.FileName + "\"");
+                    }
+                });
+                menu.MenuItems.Add("Exit", (s, e) => {
+                    if (sessionRunning || maintenanceRunning) MessageBox.Show("Close Claude and finish the current maintenance operation before exiting.", "Claude Guard");
+                    else { completed = true; Application.ExitThread(); }
+                });
                 tray.ContextMenu = menu;
-                var worker = new Thread(RunSession);
-                worker.IsBackground = true;
-                worker.Start();
+                BeginSession();
                 Application.Run();
                 tray.Visible = false;
             }
+        }
+
+        static void BeginSession()
+        {
+            if (sessionRunning || maintenanceRunning || completed) return;
+            sessionRunning = true;
+            var worker = new Thread(RunSession);
+            worker.IsBackground = true; worker.Start();
+        }
+
+        static void RunMaintenance(string script, string arguments)
+        {
+            if (maintenanceRunning || completed) return;
+            if (sessionRunning && script != "guard-privacy.ps1") {
+                MessageBox.Show("Close Claude before repairing firewall rules.", "Claude Guard"); return;
+            }
+            maintenanceRunning = true;
+            var worker = new Thread(() => {
+                string message;
+                try {
+                    using (var process = new Process()) {
+                        process.StartInfo = Script(script, arguments);
+                        var output = new StringBuilder(); var error = new StringBuilder();
+                        process.OutputDataReceived += (s, e) => { if (e.Data != null && output.Length < 16000) output.AppendLine(e.Data); };
+                        process.ErrorDataReceived += (s, e) => { if (e.Data != null && error.Length < 16000) error.AppendLine(e.Data); };
+                        process.Start(); process.BeginOutputReadLine(); process.BeginErrorReadLine();
+                        process.WaitForExit();
+                        message = process.ExitCode == 0 ? output.ToString() : error.ToString();
+                        if (message.Length == 0) message = process.ExitCode == 0 ? "Completed." : "Operation failed. Run the matching command in the Guard folder for details.";
+                    }
+                } catch (Exception ex) { message = ex.Message; }
+                if (!completed) try { dispatcher.BeginInvoke((Action)(() => { maintenanceRunning = false; MessageBox.Show(message, "Claude Guard"); })); } catch (InvalidOperationException) {}
+            });
+            worker.IsBackground = true; worker.Start();
         }
 
         static ProcessStartInfo Script(string name, string arguments)
@@ -66,6 +115,7 @@ namespace ClaudeGuard
         static void RunSession()
         {
             var error = new StringBuilder();
+            bool success = false;
             try
             {
                 using (supervisor = new Process())
@@ -79,6 +129,7 @@ namespace ClaudeGuard
                     dispatcher.BeginInvoke((Action)(() => tray.Text = "Claude Guard: session monitor"));
                     supervisor.WaitForExit();
                     if (supervisor.ExitCode != 0) throw new InvalidOperationException(error.Length == 0 ? "Launch or restoration failed. Run launch-guarded.cmd to see details." : error.ToString());
+                    success = true;
                 }
             }
             catch (Exception ex)
@@ -87,7 +138,11 @@ namespace ClaudeGuard
             }
             finally
             {
-                dispatcher.BeginInvoke((Action)(() => { completed = true; Application.ExitThread(); }));
+                dispatcher.BeginInvoke((Action)(() => {
+                    sessionRunning = false;
+                    if (success) { completed = true; Application.ExitThread(); }
+                    else tray.Text = "Claude Guard: launch blocked";
+                }));
             }
         }
 
@@ -110,6 +165,15 @@ namespace ClaudeGuard
                         process.WaitForExit();
                         var data = new JavaScriptSerializer().Deserialize<Dictionary<string, object>>(output.ToString());
                         message = (process.ExitCode == 0 ? "Firewall verification passed.\n" : "Firewall verification failed.\n") + Convert.ToString(data["Message"]);
+                        if (data.ContainsKey("Programs")) {
+                            message += "\n\nClaude paths:\n";
+                            foreach (object path in (System.Collections.IEnumerable)data["Programs"]) message += Convert.ToString(path) + "\n";
+                        }
+                        if (data.ContainsKey("BlockedInterfaces")) {
+                            message += "\nBlocked interfaces:\n";
+                            foreach (object adapter in (System.Collections.IEnumerable)data["BlockedInterfaces"]) message += Convert.ToString(adapter) + "\n";
+                        }
+                        if (data.ContainsKey("Limits")) message += "\n" + Convert.ToString(data["Limits"]);
                     }
                 }
                 catch (Exception ex) { message = ex.Message; }

@@ -1,6 +1,7 @@
 [Setup]
 AppName=Claude VPN Guard
-AppVersion=1.3.2
+AppVersion=1.4.0-rc.1
+VersionInfoVersion=1.4.0.0
 AppPublisher=Dzmitry Danilau (gruskry)
 AppPublisherURL=https://github.com/gruskry/claude-vpn-guard
 DefaultDirName={autopf}\Claude VPN Guard
@@ -14,12 +15,19 @@ PrivilegesRequired=admin
 AppMutex=Global\ClaudeVPNGuard_LaunchSession
 SetupIconFile=assets\claude.ico
 UninstallDisplayIcon={app}\Claude (VPN Guard).exe
+#ifdef SignArtifacts
+SignTool=guard-sign
+SignedUninstaller=yes
+#endif
 
 [Files]
 Source: "Claude (VPN Guard).exe"; DestDir: "{app}"; Flags: ignoreversion
-Source: "config.json"; DestDir: "{app}"; Flags: ignoreversion
+Source: "config.json"; DestDir: "{app}"; Flags: onlyifdoesntexist
 Source: "setup-firewall.ps1"; DestDir: "{app}"; Flags: ignoreversion
 Source: "guard-common.ps1"; DestDir: "{app}"; Flags: ignoreversion
+Source: "guard-network.ps1"; DestDir: "{app}"; Flags: ignoreversion
+Source: "guard-privacy.ps1"; DestDir: "{app}"; Flags: ignoreversion
+Source: "guard-diagnostics.ps1"; DestDir: "{app}"; Flags: ignoreversion
 Source: "guard-runtime.ps1"; DestDir: "{app}"; Flags: ignoreversion
 Source: "check-protection.ps1"; DestDir: "{app}"; Flags: ignoreversion
 Source: "sync-guard.ps1"; DestDir: "{app}"; Flags: ignoreversion
@@ -56,7 +64,15 @@ var
   ResultCode: Integer;
 begin
   ExtractTemporaryFile('guard-common.ps1');
+  ExtractTemporaryFile('guard-network.ps1');
+  ExtractTemporaryFile('config.json');
   ExtractTemporaryFile('setup-firewall.ps1');
+  if FileExists(ExpandConstant('{app}\config.json')) then
+    if not FileCopy(ExpandConstant('{app}\config.json'), ExpandConstant('{tmp}\config.json'), False) then
+    begin
+      Result := 'Could not read existing Guard settings. Installation has not proceeded.';
+      Exit;
+    end;
   if not RunGuardScript(ExpandConstant('{tmp}\setup-firewall.ps1'), '', ResultCode) then
     Result := 'Could not start firewall setup. Installation has not proceeded.'
   else if ResultCode <> 0 then

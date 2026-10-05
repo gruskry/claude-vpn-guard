@@ -1,5 +1,11 @@
 # Shared firewall discovery and verification, Windows PowerShell 5.1.
 $script:GuardRulePrefix = 'Claude-VPN-Guard-Block'
+. "$PSScriptRoot\guard-network.ps1"
+function Throw-GuardCoverageChanged([string]$Message) {
+    $failure=New-Object InvalidOperationException $Message
+    $failure.Data['GuardRepairable']=$true
+    throw $failure
+}
 function Get-GuardStatePath { Join-Path $env:ProgramData 'ClaudeVPNGuard\firewall-state.json' }
 function Invoke-GuardElevation([string]$ScriptPath, [string]$ExtraArguments) {
     $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
@@ -8,9 +14,9 @@ function Invoke-GuardElevation([string]$ScriptPath, [string]$ExtraArguments) {
     $process = Start-Process -FilePath $shell -Verb RunAs -Wait -PassThru -ArgumentList "-NoProfile -NonInteractive -ExecutionPolicy Bypass -File `"$ScriptPath`" $ExtraArguments" -ErrorAction Stop
     return $process.ExitCode
 }
-function Get-GuardAdapters {
-    # Display names are not a security boundary; include every physical interface.
-    @(Get-NetAdapter -IncludeHidden -ErrorAction Stop | Where-Object { $_.HardwareInterface -eq $true })
+function Get-GuardAdapters($Vpn) {
+    if ($Vpn) { return @(Get-GuardBlockedAdapters $Vpn) }
+    @(Get-GuardNetworkAdapters | Where-Object { $_.HardwareInterface -eq $true })
 }
 function Get-GuardRules([string]$PolicyStore='PersistentStore') {
     # Query failure must not be mistaken for an empty rule set (especially on uninstall).
@@ -39,9 +45,57 @@ namespace ClaudeGuard {
     }
     [ClaudeGuard.PackageIdentity]::Sid($FamilyName)
 }
+function Get-GuardCustomDesktopPath {
+    $path=Join-Path $PSScriptRoot 'config.json'
+    if (-not (Test-Path -LiteralPath $path)) { return $null }
+    $data=Get-Content -LiteralPath $path -Raw -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop
+    if (-not $data.PSObject.Properties['desktop_path'] -or $data.desktop_path -eq '') { return $null }
+    $custom=$data.desktop_path
+    if ($custom -isnot [string] -or -not [IO.Path]::IsPathRooted($custom) -or $custom.StartsWith('\\') -or (Split-Path $custom -Leaf) -ine 'Claude.exe') { throw 'desktop_path must be an absolute local path to Claude.exe.' }
+    if (-not (Test-Path -LiteralPath $custom -PathType Leaf)) { throw 'Configured Claude Desktop executable does not exist.' }
+    [IO.Path]::GetFullPath($custom)
+}
+function Assert-GuardInstallationPath([string]$Path) {
+    $current=$Path
+    while ($current) {
+        if ((Get-Item -LiteralPath $current -Force -ErrorAction Stop).Attributes -band [IO.FileAttributes]::ReparsePoint) { throw 'Custom Claude installation must not contain links or junctions.' }
+        $parent=Split-Path $current -Parent
+        if ($parent -eq $current) { break }
+        $current=$parent
+    }
+}
+function Get-GuardProcessSnapshot($Inventory) {
+    $known=New-Object 'System.Collections.Generic.List[object]'
+    $all=New-Object 'System.Collections.Generic.List[object]'
+    $failures=New-Object 'System.Collections.Generic.List[string]'
+    try { Get-Process -ErrorAction Stop | ForEach-Object { $all.Add($_) } }
+    catch { $failures.Add('Process provider failed; some processes could not be inspected.') }
+    foreach ($process in $all) {
+        try { $name=$process.ProcessName }
+        catch { $failures.Add('A process identity could not be inspected.'); continue }
+        try { $path=$process.Path }
+        catch { if ($name -ieq 'Claude') { $failures.Add("Cannot inspect Claude PID $($process.Id).") }; continue }
+        if ($path -and @($Inventory.Programs) -contains $path) { $known.Add($process) }
+        elseif ($name -ieq 'Claude') { $failures.Add("Unknown or inaccessible Claude PID $($process.Id). Close it before launching Guard.") }
+    }
+    [pscustomobject]@{Processes=$known.ToArray();Errors=$failures.ToArray()}
+}
+function Get-GuardRunningProcesses($Inventory) {
+    $snapshot=Get-GuardProcessSnapshot $Inventory
+    if (@($snapshot.Errors).Count) { throw ($snapshot.Errors -join ' ') }
+    @($snapshot.Processes)
+}
 function Get-GuardInventory {
     $programs = New-Object 'System.Collections.Generic.List[string]'
     $packages = @()
+    $custom=Get-GuardCustomDesktopPath
+    if ($custom) {
+        Assert-GuardInstallationPath $custom
+        foreach ($file in @(Get-ChildItem -LiteralPath (Split-Path $custom -Parent) -Filter '*.exe' -Recurse -File -ErrorAction Stop)) {
+            Assert-GuardInstallationPath $file.FullName
+            $programs.Add($file.FullName)
+        }
+    }
     foreach ($package in @(Get-AppxPackage -ErrorAction Stop | Where-Object { $_.PackageFamilyName -eq 'Claude_pzs8sxrjxfjjc' })) {
         if (-not $package.InstallLocation) { throw 'Claude package installation path is unavailable.' }
         $packages += [pscustomobject]@{ Family=$package.PackageFamilyName; Sid=(Get-GuardPackageSid $package.PackageFamilyName); Root=$package.InstallLocation }
@@ -73,11 +127,12 @@ function Get-GuardInventory {
             $path -ieq "$env:LOCALAPPDATA\Programs\Claude\Claude.exe" -or
             $path -ieq "$env:LOCALAPPDATA\Claude\Claude.exe" -or
             $path -ieq "$env:APPDATA\Claude\Claude.exe" -or
+            ($custom -and $path -ieq $custom) -or
             $path -like "$env:LOCALAPPDATA\Claude\app-*\Claude.exe" -or
             @($packages | Where-Object { $path.StartsWith($_.Root.TrimEnd('\') + '\', [StringComparison]::OrdinalIgnoreCase) }).Count -gt 0
         )
     } | Sort-Object -Unique)
-    [pscustomobject]@{ Programs=@($programs | Sort-Object -Unique); DesktopPaths=$desktop; Packages=@($packages); CliPath=$(if ($cli) { $cli.Source } else { $null }) }
+    [pscustomobject]@{ Programs=@($programs | Sort-Object -Unique); DesktopPaths=$desktop; PreferredDesktop=$custom; Packages=@($packages); CliPath=$(if ($cli) { $cli.Source } else { $null }) }
 }
 function Assert-GuardProfiles {
     $profiles = @(Get-NetFirewallProfile -PolicyStore ActiveStore -ErrorAction Stop)
@@ -114,7 +169,7 @@ function Assert-GuardCoverage($Specifications, [string[]]$RuleNames) {
     foreach ($specification in @($Specifications)) {
         $covered = $false
         foreach ($rule in $rules) { if (Test-GuardRule $rule $specification) { $covered=$true; break } }
-        if (-not $covered) { throw "Missing effective block rule on '$($specification.Alias)' for '$($specification.Program)$($specification.Package)'. Run setup-firewall.cmd again." }
+        if (-not $covered) { Throw-GuardCoverageChanged "Missing effective block rule on '$($specification.Alias)' for '$($specification.Program)$($specification.Package)'." }
     }
 }
 function Save-GuardFirewallState($State) {
@@ -141,16 +196,19 @@ function Save-GuardFirewallState($State) {
 function Get-GuardProtectionStatus {
     Assert-GuardProfiles
     $path = Get-GuardStatePath
-    if (-not (Test-Path -LiteralPath $path)) { throw 'Firewall setup has not completed. Run setup-firewall.cmd.' }
+    if (-not (Test-Path -LiteralPath $path)) { Throw-GuardCoverageChanged 'Firewall setup has not completed.' }
     $state = Get-Content -LiteralPath $path -Raw -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop
-    if ($state.Version -ne 1 -or -not @($state.Rules).Count) { throw 'Invalid firewall state. Run setup-firewall.cmd.' }
-    $adapters = @(Get-GuardAdapters)
-    if (-not $adapters.Count) { throw 'No physical adapters found; coverage cannot be verified.' }
+    if ($state.Version -eq 1) { Throw-GuardCoverageChanged 'Upgrade the firewall policy to VPN-pinned protection.' }
+    if ($state.Version -ne 2 -or -not @($state.Rules).Count -or -not $state.VpnGuid) { throw 'Invalid firewall state. Run setup-firewall.cmd.' }
+    $vpn=Get-GuardVpnAdapter $state.VpnGuid
+    Assert-GuardNoProxy
+    $adapters = @(Get-GuardAdapters $vpn)
+    if (-not $adapters.Count) { throw 'No untrusted adapters found; coverage cannot be verified.' }
     foreach ($adapter in $adapters) {
-        if (-not @($state.Adapters | Where-Object { $_.Guid -eq "$($adapter.InterfaceGuid)" -and $_.Alias -eq $adapter.Name }).Count) { throw "New or renamed adapter '$($adapter.Name)'. Run setup-firewall.cmd." }
+        if (-not @($state.Adapters | Where-Object { $_.Guid -eq "$($adapter.InterfaceGuid)" -and $_.Alias -eq $adapter.Name }).Count) { Throw-GuardCoverageChanged "New or renamed adapter '$($adapter.Name)'." }
     }
     $inventory = Get-GuardInventory
     if (-not @($inventory.Programs).Count) { throw 'No supported native Claude installation found.' }
     Assert-GuardCoverage @(Get-GuardSpecifications $inventory $adapters) @($state.Rules)
-    [pscustomobject]@{ Ok=$true; Inventory=$inventory; Adapters=$adapters }
+    [pscustomobject]@{ Ok=$true; Inventory=$inventory; Adapters=$adapters; Vpn=$vpn }
 }
