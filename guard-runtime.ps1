@@ -51,10 +51,28 @@ function Get-GuardConfig {
     }
     return $config
 }
-function Invoke-GuardFirewallRepair {
+function Read-GuardSetupResult([guid]$RequestId) {
+    $path=Get-GuardSetupResultPath
+    try {
+        if (-not (Test-Path -LiteralPath $path) -or (Get-Item -LiteralPath $path).Length -gt 16KB) { return $null }
+        Assert-GuardPrivateFilePath $path
+        $result=Get-Content -LiteralPath $path -Raw -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop
+        if ($result.Version -ne 1 -or $result.RequestId -ne $RequestId.ToString() -or $result.Ok -isnot [bool] -or $result.Message -isnot [string] -or $result.Message.Length -gt 2000) { return $null }
+        return $result
+    } catch { return $null }
+}
+function Invoke-GuardFirewallRepair([string]$CoverageFailure) {
     $shell=Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
-    $process=Start-Process -FilePath $shell -ArgumentList "-NoProfile -NonInteractive -ExecutionPolicy Bypass -File `"$PSScriptRoot\setup-firewall.ps1`" -NonInteractive" -WindowStyle Hidden -Wait -PassThru -ErrorAction Stop
-    try { if ($process.ExitCode -ne 0) { throw 'Firewall refresh failed or administrative permission was denied. Launch blocked.' } }
+    $requestId=[guid]::NewGuid()
+    $process=Start-Process -FilePath $shell -ArgumentList "-NoProfile -NonInteractive -ExecutionPolicy Bypass -File `"$PSScriptRoot\setup-firewall.ps1`" -NonInteractive -ResultId $requestId" -WindowStyle Hidden -Wait -PassThru -ErrorAction Stop
+    try {
+        $result=Read-GuardSetupResult $requestId
+        if ($process.ExitCode -ne 0 -or ($result -and -not $result.Ok)) {
+            $reason=if ($result -and $result.Message) { $result.Message } else { 'Administrative permission was denied, or setup did not provide its result.' }
+            if ($CoverageFailure) { $reason+=' Initial verification: '+$CoverageFailure }
+            throw ('Firewall refresh failed. '+$reason+' Launch blocked.')
+        }
+    }
     finally { $process.Dispose() }
 }
 function Get-GuardVerifiedStatus([switch]$AutoRepair) {
@@ -62,7 +80,7 @@ function Get-GuardVerifiedStatus([switch]$AutoRepair) {
     catch {
         if (-not $AutoRepair -or -not $_.Exception.Data['GuardRepairable']) { throw }
         Write-GuardDiagnosticEvent 'refresh-requested'
-        Invoke-GuardFirewallRepair
+        Invoke-GuardFirewallRepair -CoverageFailure $_.Exception.Message
         # A setup exit code is not proof of effective protection.
         $verified=Get-GuardProtectionStatus
         Write-GuardDiagnosticEvent 'refresh-verified'
@@ -131,7 +149,11 @@ function Stop-GuardRunningProcesses($Inventory, $StartedProcess) {
     }
     if ($failures.Count) { throw (($failures.ToArray() -join ' ')+' Close remaining Claude windows immediately.') }
 }
-function Invoke-GuardLaunch([switch]$LaunchCLI, [string[]]$CliArguments, [string]$TargetTimezone, [switch]$NoTimezoneChange) {
+function Write-GuardLaunchProgress([string]$Stage, [bool]$Enabled) {
+    if ($Enabled) { Write-Host "[ClaudeGuardProgress]$Stage" }
+}
+function Invoke-GuardLaunch([switch]$LaunchCLI, [string[]]$CliArguments, [string]$TargetTimezone, [switch]$NoTimezoneChange, [switch]$ProgressMessages) {
+    $reportProgress=$ProgressMessages -and -not $LaunchCLI
     $mutex = New-Object Threading.Mutex($false, 'Global\ClaudeVPNGuard_LaunchSession')
     $locked = $false
     $inventory = $null
@@ -140,15 +162,19 @@ function Invoke-GuardLaunch([switch]$LaunchCLI, [string[]]$CliArguments, [string
     try {
         try { $locked = $mutex.WaitOne(0) } catch [Threading.AbandonedMutexException] { $locked=$true }
         if (-not $locked) { throw 'Another guarded session is running. Close it before launching another.' }
+        Write-GuardLaunchProgress 'initializing' $reportProgress
         Restore-GuardTimezone
         $config = Get-GuardConfig
         $script:GuardDiagnosticLoggingEnabled=[bool]$config.diagnostic_log
+        Write-GuardLaunchProgress 'discovery' $reportProgress
         $discovered=Get-GuardInventory
         if (@(Get-GuardRunningProcesses $discovered).Count) { throw 'Claude is already running. Close it before starting a guarded session.' }
+        Write-GuardLaunchProgress 'firewall' $reportProgress
         $status = Get-GuardVerifiedStatus -AutoRepair:$config.auto_refresh
         $inventory = $status.Inventory
         if (@(Get-GuardRunningProcesses $inventory).Count) { throw 'Claude is already running. Close it before starting a guarded session.' }
-        if ($config.clean_diagnostics_before_launch) { $privacy=Invoke-GuardPrivacy -Clean; Write-GuardDiagnosticEvent 'privacy-cleaned' $privacy.Fields }
+        if ($config.clean_diagnostics_before_launch) { Write-GuardLaunchProgress 'privacy' $reportProgress; $privacy=Invoke-GuardPrivacy -Clean; Write-GuardDiagnosticEvent 'privacy-cleaned' $privacy.Fields }
+        Write-GuardLaunchProgress 'location' $reportProgress
         $location = Get-PublicIPLocation $status.Vpn
         if (-not $location) { throw 'Public IP/country could not be verified. Launch blocked.' }
         if ($script:GuardBlockedCountries -contains $location.CountryCode) { throw "Country $($location.CountryCode) is blocked by the local launch policy." }
@@ -158,7 +184,7 @@ function Invoke-GuardLaunch([switch]$LaunchCLI, [string[]]$CliArguments, [string
             if ($config.auto_detect) { $target = $script:GuardTimezoneMap[$location.IanaTz] }
             else { $target = $config.target_timezone }
         }
-        if (-not $NoTimezoneChange -and $config.change_timezone -and $target) { Start-GuardTimezone $target }
+        if (-not $NoTimezoneChange -and $config.change_timezone -and $target) { Write-GuardLaunchProgress 'timezone' $reportProgress; Start-GuardTimezone $target }
         $changeMonitor=New-GuardChangeMonitor $inventory
         if ($LaunchCLI) {
             if (-not $inventory.CliPath -or @($inventory.Programs) -notcontains $inventory.CliPath) { throw 'A native claude.exe on PATH is required. npm/Node wrappers are not launched by Guard.' }
@@ -171,12 +197,15 @@ function Invoke-GuardLaunch([switch]$LaunchCLI, [string[]]$CliArguments, [string
             if (-not $desktopPaths.Count) { throw 'Claude Desktop executable was not found.' }
             $desktop = if ($inventory.PreferredDesktop) { $inventory.PreferredDesktop } else { $desktopPaths | Sort-Object { if ($_ -match '\\app-') { 0 } else { 1 } }, { (Get-Item -LiteralPath $_).LastWriteTimeUtc } -Descending | Select-Object -First 1 }
             # Recheck after location/timezone work, immediately before creating the process.
+            Write-GuardLaunchProgress 'final-check' $reportProgress
             $status = Get-GuardVerifiedStatus -AutoRepair:$config.auto_refresh
             if (@($status.Inventory.DesktopPaths) -notcontains $desktop) { throw 'Claude changed during preflight. Start Guard again.' }
+            Write-GuardLaunchProgress 'starting' $reportProgress
             $startedProcess = Start-GuardNativeProcess $desktop @()
             Write-GuardDiagnosticEvent 'desktop-started'
         }
         if (-not $startedProcess) { throw 'Claude process could not be started.' }
+        Write-GuardLaunchProgress 'started' $reportProgress
         $deadline = [DateTime]::UtcNow.AddSeconds(15)
         $seen = $false
         $nextCheck = [DateTime]::MinValue

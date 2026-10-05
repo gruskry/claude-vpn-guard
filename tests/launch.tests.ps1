@@ -27,16 +27,21 @@ function Start-GuardNativeProcess($Path,$Arguments) {
 function Stop-GuardRunningProcesses($Inventory,$StartedProcess) {
     $script:stoppedNew = @($Inventory.Programs) -contains 'C:\Claude\new\Claude.exe'
 }
-try { Invoke-GuardLaunch -NoTimezoneChange; throw 'unexpected success' }
-catch { Assert ($_.Exception.Message -ne 'unexpected success') 'unsafe update must fail the session' }
-Assert $script:stoppedNew 'shutdown includes updated executable, even after original process exited'
+$script:progress=@()
+function Write-GuardLaunchProgress([string]$Stage,[bool]$Enabled) { if ($Enabled) { $script:progress+= $Stage } }
+try { Invoke-GuardLaunch -NoTimezoneChange -ProgressMessages; throw 'unexpected success' }
+catch { $launchFailure=$_.Exception.Message; Assert ($launchFailure -ne 'unexpected success') 'unsafe update must fail the session' }
+Assert $script:stoppedNew ("shutdown includes updated executable, even after original process exited; failure: $launchFailure")
 Assert ($script:restored -eq 2) 'timezone restoration runs after failed protection recheck'
+Assert (($script:progress -join ',') -eq 'initializing,discovery,firewall,location,final-check,starting,started') 'GUI stages reflect actual launch boundaries and announce start only after process creation'
 Write-Host 'PASS: updated Claude process is stopped on failed coverage verification'
 $script:started=0
+$script:progress=@()
 function Get-GuardProtectionStatus { throw 'Missing block rule' }
-try { Invoke-GuardLaunch -NoTimezoneChange; throw 'unexpected success' }
+try { Invoke-GuardLaunch -NoTimezoneChange -ProgressMessages; throw 'unexpected success' }
 catch { Assert ($_.Exception.Message -ne 'unexpected success') 'incomplete protection blocks launch' }
 Assert ($script:started -eq 0) 'preflight failure never starts Claude'
+Assert ($script:progress -notcontains 'started') 'failed preflight never dismisses the GUI as a successful launch'
 Write-Host 'PASS: incomplete protection blocks process creation'
 $script:started=0; $script:stoppedNew=$false
 function Get-GuardProtectionStatus { [pscustomobject]@{Ok=$true;Inventory=$script:old} }

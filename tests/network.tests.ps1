@@ -29,8 +29,8 @@ Assert ($vpn.ifIndex -eq 4) 'select the internet tunnel, not another virtual LAN
 $blocked=@(Get-GuardBlockedAdapters $vpn)
 Assert ($blocked.Count -eq 2 -and $blocked.ifIndex -contains 6) 'other virtual adapters are blocked too'
 $script:adapters+=@(
-    [pscustomobject]@{Name='WAN Miniport';InterfaceGuid='{44444444-4444-4444-4444-444444444444}';ifIndex=7;HardwareInterface=$false;Status='Up'},
-    [pscustomobject]@{Name='IPv6 tunnel';InterfaceGuid='{55555555-5555-5555-5555-555555555555}';ifIndex=8;HardwareInterface=$false;Status='Up'},
+    [pscustomobject]@{Name='WAN Miniport';InterfaceGuid='{44444444-4444-4444-4444-444444444444}';ifIndex=7;HardwareInterface=$false;Status='Up';InterfaceType=131;InterfaceDescription='WAN Miniport (IKEv2)'},
+    [pscustomobject]@{Name='IPv6 tunnel';InterfaceGuid='{55555555-5555-5555-5555-555555555555}';ifIndex=8;HardwareInterface=$false;Status='Up';InterfaceType=131},
     [pscustomobject]@{Name='Disconnected Wi-Fi';InterfaceGuid='{66666666-6666-6666-6666-666666666666}';ifIndex=9;HardwareInterface=$true;Status='Disconnected'}
 )
 $script:ipInterfaces+=@(
@@ -40,6 +40,15 @@ $script:ipInterfaces+=@(
 $blocked=@(Get-GuardBlockedAdapters $vpn)
 Assert ($blocked.Count -eq 4 -and $blocked.ifIndex -notcontains 7) 'non-IP service devices do not break firewall setup'
 Assert ($blocked.ifIndex -contains 8 -and $blocked.ifIndex -contains 9) 'IPv6-only and disconnected IP adapters retain coverage'
+$originalIpInterfaces=$script:ipInterfaces
+$script:ipInterfaces=@($script:ipInterfaces | Where-Object InterfaceIndex -ne 8)
+$dormantTunnel=@(Get-GuardBlockedAdapters $vpn | Where-Object ifIndex -eq 8)
+Assert ($dormantTunnel.Count -eq 1 -and $dormantTunnel[0].IpInterfacePresent -eq $false) 'installed tunnel retains prepared coverage when its IP interface temporarily disappears'
+Assert (@(Get-GuardBlockedAdapters $vpn).ifIndex -notcontains 7) 'type 131 alone cannot include a non-IP WAN service device'
+$script:adapters+= [pscustomobject]@{Name='Absent tunnel';InterfaceGuid='{77777777-7777-7777-7777-777777777777}';ifIndex=10;HardwareInterface=$false;Status='Not Present';InterfaceType=131;InterfaceDescription=''}
+Assert (@(Get-GuardBlockedAdapters $vpn).ifIndex -notcontains 10) 'absent pseudo devices cannot be bound to new firewall rules'
+$script:ipInterfaces=$originalIpInterfaces
+Assert (@(Get-GuardBlockedAdapters $vpn | Where-Object ifIndex -eq 8)[0].IpInterfacePresent -eq $true) 'reactivated tunnel requires enforced coverage without rediscovering a new adapter'
 $script:ipInterfaces+=[pscustomobject]@{InterfaceIndex=7;AddressFamily='IPv4'}
 Assert (@(Get-GuardBlockedAdapters $vpn).ifIndex -contains 7) 'a device acquiring an IP interface requires coverage on the next check'
 $script:failIPDiscovery=$true

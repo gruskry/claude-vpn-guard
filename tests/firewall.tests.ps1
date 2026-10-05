@@ -83,15 +83,25 @@ Assert ($script:rules.Count -eq 1 -and $script:rules[0].Name -like '*-old') 'fai
 Write-Host 'PASS: state write failure rolls back new generation'
 Reset-Fixture
 Invoke-GuardFirewallSetup
-Assert ($script:rules.Count -eq 2 -and $script:rules.Name -notcontains 'Claude-VPN-Guard-Block-old') 'successful swap removes previous generation'
+Assert ($script:rules.Count -eq 4 -and $script:rules.Name -notcontains 'Claude-VPN-Guard-Block-old') 'successful swap removes previous generation'
 Assert ($script:events.IndexOf('commit') -lt $script:events.IndexOf('remove:Claude-VPN-Guard-Block-old')) 'commit precedes old removal'
 Write-Host 'PASS: complete effective generation is committed before removal'
+$ipv6Only=[pscustomobject]@{Name='Teredo';InterfaceGuid='ipv6-1';Status='Up';IpInterfacePresent=$true;Ipv4Present=$false}
+$ipv6Specifications=@(Get-GuardSpecifications (Get-GuardInventory) @($ipv6Only))
+Assert ($ipv6Specifications.Count -eq 2 -and @($ipv6Specifications | Where-Object { $_.Alias -ne 'Any' -or $_.RemoteAddress -ne '::-ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff' }).Count -eq 0) 'IPv6-only adapters use mandatory app/package IPv6 blocks without unstable alias bindings'
+$ipv6Rule=@($script:rules | Where-Object { $_.Program -eq 'C:\Claude\claude.exe' -and $_.Alias -eq 'Any' })[0]
+Assert (Test-GuardRule $ipv6Rule $ipv6Specifications[0]) 'enforced IPv6 block covers the full IPv6 address space for the exact program'
+$restricted=$ipv6Rule | Select-Object *; $restricted.RemoteAddress='2001:db8::/32'
+Assert (-not (Test-GuardRule $restricted $ipv6Specifications[0])) 'a partial IPv6 range cannot satisfy the full IPv6 block'
+$restricted.RemoteAddress='::-ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff'; $restricted.Alias='Teredo'
+Assert (-not (Test-GuardRule $restricted $ipv6Specifications[0])) 'a single-adapter IPv6 rule cannot replace all-interface coverage'
+Write-Host 'PASS: IPv6 policy is application-scoped, complete and independent of Teredo aliases'
 Reset-Fixture
 $script:rules[0].Enabled='True'
 $script:rules[0] | Add-Member RemoteAddress 'Any'
 $script:deduplicate=$true
 Invoke-GuardFirewallSetup
-Assert ($script:rules.Count -eq 2 -and $script:rules.Name -notcontains 'Claude-VPN-Guard-Block-old') 'duplicate replacement retires the old generation'
+Assert ($script:rules.Count -eq 4 -and $script:rules.Name -notcontains 'Claude-VPN-Guard-Block-old') 'duplicate replacement retires the old generation'
 Assert ($script:events.IndexOf('commit') -lt $script:events.IndexOf('remove:Claude-VPN-Guard-Block-old')) 'duplicate replacement still commits before retiring the enforced witness'
 Assert-GuardCoverage @(Get-GuardSpecifications (Get-GuardInventory) (Get-GuardAdapters)) @($script:state.Rules)
 Write-Host 'PASS: Windows duplicate optimization permits a verified transactional refresh'
@@ -100,7 +110,7 @@ Reset-Fixture
 $script:failAfterRetirement=$true
 try { Invoke-GuardFirewallSetup; throw 'unexpected success' }
 catch { Assert ($_.Exception.Message -ne 'unexpected success') 'setup cannot succeed when committed rules lose enforcement after retirement' }
-Assert ($script:rules.Count -eq 2) 'post-retirement failure retains the committed generation for repair'
+Assert ($script:rules.Count -eq 4) 'post-retirement failure retains the committed generation for repair'
 $script:rules=$savedRules; $script:state=$savedState; $script:failAfterRetirement=$false; $script:deduplicate=$false
 Write-Host 'PASS: setup verifies committed coverage again after retiring old rules'
 $spec=[pscustomobject]@{Alias='Ethernet';Program='C:\Claude\claude.exe';Package=$null;InterfaceStatus='Up'}
@@ -169,6 +179,12 @@ $providerRule.EnforcementStatus=@('Enforced','LocalFirewallRulesDisallowed')
 Assert (-not (Test-GuardRule $providerRule $spec)) 'a policy rejection is not hidden by another enforced status'
 $providerRule.PrimaryStatus='Inactive'; $providerRule.EnforcementStatus=@('ProfileInactive','NoInterface')
 Assert (-not (Test-GuardRule $providerRule $spec)) 'a missing interface on an up adapter blocks verification'
+$spec | Add-Member IpInterfacePresent $false
+Assert (Test-GuardRule $providerRule $spec) 'an installed tunnel without an IP interface can retain dormant coverage'
+$spec.IpInterfacePresent=$true
+Assert (-not (Test-GuardRule $providerRule $spec)) 'a tunnel with a live IP interface requires enforced rules'
+$spec.IpInterfacePresent=$null
+Assert (-not (Test-GuardRule $providerRule $spec)) 'unknown IP-interface presence cannot make an up adapter dormant'
 $spec.InterfaceStatus='Disconnected'
 Assert (Test-GuardRule $providerRule $spec) 'dormant rules on disconnected IP adapters can be prepared'
 $spec.InterfaceStatus='Up'
@@ -198,6 +214,11 @@ try {
     Reset-Fixture; Invoke-GuardFirewallSetup
     $script:state | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath (Get-GuardStatePath) -Encoding UTF8
     $null=Get-GuardProtectionStatus
+    $normalAdapterImplementation=${function:Get-GuardAdapters}
+    function Get-GuardAdapters { @([pscustomobject]@{Name='Ethernet';InterfaceGuid='adapter-1';Ipv4Present=$true},[pscustomobject]@{Name='New IPv6 tunnel';InterfaceGuid='ipv6-2';Status='Up';Ipv4Present=$false;IpInterfacePresent=$true}) }
+    $null=Get-GuardProtectionStatus
+    Set-Item -Path function:Get-GuardAdapters -Value $normalAdapterImplementation
+    Write-Host 'PASS: newly appearing IPv6-only tunnel is covered without administrative refresh'
     function Get-GuardAdapters { @([pscustomobject]@{Name='Renamed Ethernet';InterfaceGuid='adapter-1'}) }
     try { Get-GuardProtectionStatus; throw 'unexpected success' } catch { Assert ($_.Exception.Message -ne 'unexpected success') 'adapter change blocks verification' }
     Write-Host 'PASS: new or renamed adapter blocks launch status'
@@ -207,12 +228,34 @@ try {
     Write-Host 'PASS: application path change requires fresh setup'
     function Restore-GuardDnsConfiguration { throw 'Injected DNS conflict' }
     try { Invoke-GuardFirewallSetup -Uninstall; throw 'unexpected success' } catch { Assert ($_.Exception.Message -ne 'unexpected success') 'DNS conflict must fail uninstall' }
-    Assert ($script:rules.Count -eq 2) 'DNS restore failure retains firewall rules'
+    Assert ($script:rules.Count -eq 4) 'DNS restore failure retains firewall rules'
     function Restore-GuardDnsConfiguration { $script:events += 'dns-restored' }
     Invoke-GuardFirewallSetup -Uninstall
     Assert ($script:rules.Count -eq 0) 'uninstall actually removes all Guard rules'
     Assert (-not (Test-Path -LiteralPath (Get-GuardStatePath))) 'uninstall removes firewall state after successful removal'
     Write-Host 'PASS: uninstall removes rules only after successful DNS restore'
+    $coverageImplementation=${function:Assert-GuardCoverage}
+    $adapterImplementation=${function:Get-GuardAdapters}
+    try {
+        $script:setupCoverageAttempts=0
+        function Get-GuardAdapters { [pscustomobject]@{Name='Tunnel';InterfaceGuid='adapter-1';Status='Up';IpInterfacePresent=$false} }
+        function Assert-GuardCoverage($Specifications,$RuleNames,[switch]$DuringRefresh) {
+            $script:setupCoverageAttempts++
+            Assert ($Specifications[0].IpInterfacePresent -eq $false) 'setup must refresh the IP-interface snapshot instead of using the old connected state'
+            if ($script:setupCoverageAttempts -eq 1) { Throw-GuardCoverageChanged 'Interface changed during verification' }
+        }
+        $initial=@([pscustomobject]@{Name='Tunnel';InterfaceGuid='adapter-1';Status='Up';IpInterfacePresent=$true})
+        Assert-GuardSetupCoverage $null $initial @('rule-1')
+        Assert ($script:setupCoverageAttempts -eq 2) 'transient coverage failure is retried against a new snapshot'
+        $script:setupCoverageAttempts=0
+        function Assert-GuardCoverage($Specifications,$RuleNames,[switch]$DuringRefresh) { $script:setupCoverageAttempts++; Throw-GuardCoverageChanged 'Still unenforced' }
+        try { Assert-GuardSetupCoverage $null $initial @('rule-1'); throw 'unexpected success' }
+        catch { Assert ($_.Exception.Message -eq 'Still unenforced' -and $script:setupCoverageAttempts -eq 3) 'unverified coverage remains blocked after the bounded retries' }
+        Write-Host 'PASS: setup refreshes interface state and retries transient failures without accepting unenforced coverage'
+    } finally {
+        Set-Item -Path function:Assert-GuardCoverage -Value $coverageImplementation
+        Set-Item -Path function:Get-GuardAdapters -Value $adapterImplementation
+    }
 } finally {
     if ((Split-Path $testDirectory -Parent) -eq $env:TEMP) { Remove-Item -LiteralPath $testDirectory -Recurse -Force }
 }

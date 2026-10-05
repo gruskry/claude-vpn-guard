@@ -32,10 +32,15 @@ function Get-GuardBlockedAdapters($Vpn) {
     # so a newly exposed IP interface immediately requires verified coverage.
     $interfaces=@(Get-NetIPInterface -ErrorAction Stop)
     $indices=@($interfaces | ForEach-Object { $_.InterfaceIndex } | Sort-Object -Unique)
+    $ipv4Indices=@($interfaces | Where-Object { "$($_.AddressFamily)" -eq 'IPv4' } | ForEach-Object { $_.InterfaceIndex } | Sort-Object -Unique)
     if ($indices -notcontains $Vpn.ifIndex) { throw 'The VPN IP interface disappeared during discovery. Reconnect the VPN and retry.' }
+    # Installed non-NDIS tunnel interfaces, including Teredo, can temporarily
+    # disappear from the IP inventory. WAN miniports also have type 131, but
+    # expose a driver description and cannot be covered without an IP interface.
     @($adapters | Where-Object {
-        [guid]$_.InterfaceGuid -ne [guid]$Vpn.InterfaceGuid -and $indices -contains $_.ifIndex
-    })
+        $preparedTunnel=($_.InterfaceType -eq 131 -and -not $_.InterfaceDescription -and "$($_.Status)" -in @('Up','Disconnected','Disabled'))
+        [guid]$_.InterfaceGuid -ne [guid]$Vpn.InterfaceGuid -and ($indices -contains $_.ifIndex -or $preparedTunnel)
+    } | Select-Object Name,InterfaceGuid,Status,ifIndex,InterfaceType,@{Name='IpInterfacePresent';Expression={ $indices -contains $_.ifIndex }},@{Name='Ipv4Present';Expression={ $ipv4Indices -contains $_.ifIndex }})
 }
 function Assert-GuardNoProxy {
     foreach ($name in @('HTTP_PROXY','HTTPS_PROXY','ALL_PROXY')) {

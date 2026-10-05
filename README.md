@@ -45,7 +45,7 @@ Guard detects the active internet VPN tunnel from local routes, pins its interfa
 | Capability | What Guard does |
 | --- | --- |
 | **VPN detection** | Detects a recognized virtual tunnel that owns the sampled internet routes, then saves its GUID. Later refreshes preserve that selection. |
-| **Firewall setup** | Creates outbound blocks on other physical and virtual IP interfaces, including disconnected adapters and IPv6-only interfaces. Excludes service devices without an IP interface. Verifies new rules before replacing the previous setup and checks the committed generation again afterwards. Duplicate rules require matching active coverage, or prepared coverage on a disconnected adapter; that coverage must become enforced when the adapter comes up. Rules apply to both IP families. |
+| **Firewall setup** | Blocks IPv4 on other physical and virtual IP interfaces, including disconnected adapters. Separate app/package rules block IPv6 across all interfaces, including the VPN, without binding to IPv6-only tunnel aliases. Excludes service devices without an IP interface. Verifies new rules before replacing the previous setup and checks the committed generation again afterwards. Duplicate rules require matching active coverage, or prepared coverage on a disconnected adapter; that coverage must become enforced when the adapter comes up. |
 | **Desktop & native CLI** | Provides a tray launcher, a console launcher, and a CLI launcher that preserves arguments and exit codes. |
 | **Automatic refresh** | Repairs missing coverage before launch with administrator permission and verifies it again. A running session stops on coverage failure; eligible rule changes are then refreshed for the next launch. |
 | **Session monitoring** | Refuses a new launch when coverage is incomplete; attempts to stop identified Claude processes if verification fails during a session. |
@@ -104,6 +104,8 @@ Arguments and the CLI exit code are preserved. Node/npm command wrappers are not
 ```powershell
 powershell.exe -NoProfile -File .\check-protection.ps1
 ```
+
+A launch window appears immediately and shows the current check before Claude starts automatically. It closes when Claude's process is started; the tray monitor remains active. Launch failures show the Guard error separately from Claude's own warnings.
 
 The tray's **Check firewall status** command shows the selected VPN, executable paths and blocked interfaces. If launch fails, the tray remains available for repair, privacy audit and another launch attempt. Close Claude before repair or cleanup.
 
@@ -225,12 +227,15 @@ Older releases did not save DNS backups. Their original settings must be restore
 | State | Location |
 | --- | --- |
 | Firewall setup | `%ProgramData%\ClaudeVPNGuard\firewall-state.json` |
+| Latest administrative setup result | `%ProgramData%\ClaudeVPNGuard\setup-result.json` |
 | DNS backup | `%ProgramData%\ClaudeVPNGuard\dns-state.json` |
 | Timezone recovery | `%LOCALAPPDATA%\ClaudeVPNGuard\timezone-state.json` |
 | Encrypted privacy backups | `%LOCALAPPDATA%\ClaudeVPNGuard\privacy-backups` |
 | Bounded diagnostic events | `%LOCALAPPDATA%\ClaudeVPNGuard\guard-events.jsonl` |
 
 Preserve these files while resolving setup or restoration errors.
+
+The setup result contains the latest operation ID, success flag and a bounded error message. Guard matches the operation ID before displaying an administrative failure, so an older result cannot explain a new attempt. IPv6-only tunnels such as Teredo are covered by mandatory app/package IPv6 blocks across all interfaces. Their appearance or disappearance does not require binding a rule to an unstable tunnel alias. IPv4 interface coverage is still checked before launch and during the session.
 
 </details>
 
@@ -243,6 +248,7 @@ Removal restores saved DNS settings before removing Guard rules. If restoration 
 ## Scope and limitations
 
 - **Guard is not a VPN.** Detection inspects sample routes and known tunnel types. The IPv4 location request binds the tunnel's source address and checks the actual endpoint route; it is not a probe of every Claude destination or of IPv6 public egress.
+- **Claude uses IPv4 through the VPN.** IPv6 is blocked for discovered Claude executables and the Claude package on all interfaces, including the VPN. System IPv6 and other applications are not disabled.
 - **Checks have a delay.** They cannot guarantee that no packets escape during an interface, policy, or application change. Package rules supplement executable rules; future updates still require coverage verification.
 - **Rules cover discovered native executables on enumerated interfaces.** Local relay services, WSL/Cowork/VM networking, browsers, and external tools or child executables outside the discovered installation need separate protection. Windows DNS-service traffic is not attributed to Claude by these executable rules; hostname resolution for the location request also uses Windows DNS.
 - **Use the Guard launcher for a checked session.** Guard does not replace the `claude://` handler. Browser "Open in app" actions can launch Claude directly; only existing matching firewall rules apply to that launch.

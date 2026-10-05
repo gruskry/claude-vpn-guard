@@ -64,6 +64,9 @@ function Assert-GuardInstallationPath([string]$Path) {
         $current=$parent
     }
 }
+function Test-GuardProcessExited($Process) {
+    try { return [bool]$Process.HasExited } catch { return $false }
+}
 function Get-GuardProcessSnapshot($Inventory) {
     $known=New-Object 'System.Collections.Generic.List[object]'
     $all=New-Object 'System.Collections.Generic.List[object]'
@@ -71,10 +74,14 @@ function Get-GuardProcessSnapshot($Inventory) {
     try { Get-Process -ErrorAction Stop | ForEach-Object { $all.Add($_) } }
     catch { $failures.Add('Process provider failed; some processes could not be inspected.') }
     foreach ($process in $all) {
+        if (Test-GuardProcessExited $process) { continue }
         try { $name=$process.ProcessName }
-        catch { $failures.Add('A process identity could not be inspected.'); continue }
+        catch { if (-not (Test-GuardProcessExited $process)) { $failures.Add('A process identity could not be inspected.') }; continue }
         try { $path=$process.Path }
-        catch { if ($name -ieq 'Claude') { $failures.Add("Cannot inspect Claude PID $($process.Id).") }; continue }
+        catch { if ($name -ieq 'Claude' -and -not (Test-GuardProcessExited $process)) { $failures.Add("Cannot inspect Claude PID $($process.Id).") }; continue }
+        # Electron workers can exit between enumeration and reading Path.
+        # Only a confirmed exit is safe to ignore; a live unknown PID still blocks.
+        if (Test-GuardProcessExited $process) { continue }
         if ($path -and @($Inventory.Programs) -contains $path) { $known.Add($process) }
         elseif ($name -ieq 'Claude') { $failures.Add("Unknown or inaccessible Claude PID $($process.Id). Close it before launching Guard.") }
     }
@@ -164,9 +171,14 @@ function Assert-GuardProfiles {
 }
 function Get-GuardSpecifications($Inventory, $Adapters) {
     foreach ($adapter in @($Adapters)) {
-        foreach ($program in @($Inventory.Programs)) { [pscustomobject]@{ Alias=$adapter.Name; Guid="$($adapter.InterfaceGuid)"; InterfaceStatus="$($adapter.Status)"; Program=$program; Package=$null } }
-        foreach ($package in @($Inventory.Packages)) { [pscustomobject]@{ Alias=$adapter.Name; Guid="$($adapter.InterfaceGuid)"; InterfaceStatus="$($adapter.Status)"; Program=$null; Package=$package.Sid } }
+        # IPv6 is blocked for Claude across all interfaces below. Pure IPv6
+        # tunnels need no alias binding and may come and go without a repair.
+        if ($adapter.Ipv4Present -is [bool] -and -not $adapter.Ipv4Present) { continue }
+        foreach ($program in @($Inventory.Programs)) { [pscustomobject]@{ Alias=$adapter.Name; Guid="$($adapter.InterfaceGuid)"; InterfaceStatus="$($adapter.Status)"; IpInterfacePresent=$adapter.IpInterfacePresent; Program=$program; Package=$null } }
+        foreach ($package in @($Inventory.Packages)) { [pscustomobject]@{ Alias=$adapter.Name; Guid="$($adapter.InterfaceGuid)"; InterfaceStatus="$($adapter.Status)"; IpInterfacePresent=$adapter.IpInterfacePresent; Program=$null; Package=$package.Sid } }
     }
+    foreach ($program in @($Inventory.Programs)) { [pscustomobject]@{Alias='Any';InterfaceStatus='Up';Program=$program;Package=$null;RemoteAddress='::-ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff'} }
+    foreach ($package in @($Inventory.Packages)) { [pscustomobject]@{Alias='Any';InterfaceStatus='Up';Program=$null;Package=$package.Sid;RemoteAddress='::-ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff'} }
 }
 function Get-GuardRuleFilter($Rule, [string]$Kind, [hashtable]$Cache) {
     $key="$($Rule.Name):$Kind"
@@ -195,7 +207,8 @@ function Test-GuardRule($Rule, $Specification, [switch]$AllowDuplicate, [hashtab
         @($enforcement | Where-Object { $_ -notin @('Enforced','Full','NotApplicable','ProfileInactive','InactiveProfile') }).Count -eq 0)
     # A disconnected adapter cannot carry IP traffic, but its rules must be
     # prepared. Once it is up, periodic verification requires active enforcement.
-    $dormant=("$($Specification.InterfaceStatus)" -in @('Disconnected','Disabled','Not Present') -and
+    $withoutIp=($Specification.IpInterfacePresent -is [bool] -and -not $Specification.IpInterfacePresent)
+    $dormant=(("$($Specification.InterfaceStatus)" -in @('Disconnected','Disabled','Not Present') -or $withoutIp) -and
         "$($Rule.PrimaryStatus)" -eq 'Inactive' -and
         @($enforcement | Where-Object { $_ -in @('NoInterface','InterfaceResolutionEmpty') }).Count -gt 0 -and
         @($enforcement | Where-Object { $_ -notin @('ProfileInactive','InactiveProfile','NoInterface','InterfaceResolutionEmpty') }).Count -eq 0)
@@ -216,8 +229,9 @@ function Test-GuardRule($Rule, $Specification, [switch]$AllowDuplicate, [hashtab
     $address = Get-GuardRuleFilter $Rule 'Address' $FilterCache
     $service = Get-GuardRuleFilter $Rule 'Service' $FilterCache
     $type = Get-GuardRuleFilter $Rule 'InterfaceType' $FilterCache
+    $remoteAddress=if ($Specification.RemoteAddress) { [string]$Specification.RemoteAddress } else { 'Any' }
     if ("$($port.Protocol)" -ne 'Any' -or "$($port.LocalPort)" -ne 'Any' -or "$($port.RemotePort)" -ne 'Any' -or
-        "$($address.LocalAddress)" -ne 'Any' -or "$($address.RemoteAddress)" -ne 'Any' -or "$($service.Service)" -ne 'Any' -or "$($type.InterfaceType)" -ne 'Any') { return $false }
+        "$($address.LocalAddress)" -ne 'Any' -or "$($address.RemoteAddress)" -ne $remoteAddress -or "$($service.Service)" -ne 'Any' -or "$($type.InterfaceType)" -ne 'Any') { return $false }
     $security = Get-GuardRuleFilter $Rule 'Security' $FilterCache
     if ("$($security.Authentication)" -ne 'NotRequired' -or "$($security.Encryption)" -ne 'NotRequired' -or
         "$($security.LocalUser)" -ne 'Any' -or "$($security.RemoteUser)" -ne 'Any' -or "$($security.RemoteMachine)" -ne 'Any') { return $false }
@@ -250,8 +264,9 @@ function Assert-GuardCoverage($Specifications, [string[]]$RuleNames, [switch]$Du
         if (-not $covered) { Throw-GuardCoverageChanged "Missing effective block rule on '$($specification.Alias)' for '$($specification.Program)$($specification.Package)'." }
     }
 }
-function Save-GuardFirewallState($State) {
-    $path = Get-GuardStatePath
+function Get-GuardSetupResultPath { Join-Path $env:ProgramData 'ClaudeVPNGuard\setup-result.json' }
+function Save-GuardAdministratorJson([string]$Path, $Data) {
+    $path=$Path
     $directory = Split-Path $path -Parent
     if (-not (Test-Path -LiteralPath $directory)) { New-Item -ItemType Directory -Path $directory -Force -ErrorAction Stop | Out-Null }
     foreach ($target in @($directory,$path)) {
@@ -267,9 +282,14 @@ function Save-GuardFirewallState($State) {
     Set-Acl -LiteralPath $directory -AclObject $acl -ErrorAction Stop
     $temporary = "$path.$([guid]::NewGuid().ToString('N')).tmp"
     try {
-        $State | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $temporary -Encoding UTF8 -ErrorAction Stop
+        $Data | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $temporary -Encoding UTF8 -ErrorAction Stop
         Move-Item -LiteralPath $temporary -Destination $path -Force -ErrorAction Stop
     } finally { if (Test-Path -LiteralPath $temporary) { Remove-Item -LiteralPath $temporary -Force } }
+}
+function Save-GuardFirewallState($State) { Save-GuardAdministratorJson (Get-GuardStatePath) $State }
+function Save-GuardSetupResult([guid]$RequestId, [bool]$Ok, [string]$Message) {
+    if ($Message.Length -gt 2000) { $Message=$Message.Substring(0,2000) }
+    Save-GuardAdministratorJson (Get-GuardSetupResultPath) ([pscustomobject]@{Version=1;RequestId=$RequestId.ToString();Ok=$Ok;Message=$Message})
 }
 function Get-GuardProtectionStatus {
     Assert-GuardProfiles
@@ -283,6 +303,7 @@ function Get-GuardProtectionStatus {
     $adapters = @(Get-GuardAdapters $vpn)
     if (-not $adapters.Count) { throw 'No untrusted adapters found; coverage cannot be verified.' }
     foreach ($adapter in $adapters) {
+        if ($adapter.Ipv4Present -is [bool] -and -not $adapter.Ipv4Present) { continue }
         if (-not @($state.Adapters | Where-Object { $_.Guid -eq "$($adapter.InterfaceGuid)" -and $_.Alias -eq $adapter.Name }).Count) { Throw-GuardCoverageChanged "New or renamed adapter '$($adapter.Name)'." }
     }
     $inventory = Get-GuardInventory

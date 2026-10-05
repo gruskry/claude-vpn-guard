@@ -12,13 +12,14 @@ try {
     Copy-Item -LiteralPath "$root\sync-guard.ps1" -Destination $testDirectory
     Copy-Item -LiteralPath "$root\launch-cli.ps1" -Destination $testDirectory
     @'
-function Invoke-GuardLaunch([switch]$LaunchCLI, [string[]]$CliArguments, [string]$TargetTimezone, [switch]$NoTimezoneChange) {
+function Invoke-GuardLaunch([switch]$LaunchCLI, [string[]]$CliArguments, [string]$TargetTimezone, [switch]$NoTimezoneChange, [switch]$ProgressMessages) {
     $record=[pscustomobject]@{
         CLI=[bool]$LaunchCLI
         ArgumentCount=$(if ($null -eq $CliArguments) { 0 } else { $CliArguments.Count })
         Arguments=$CliArguments
         TargetTimezone=$TargetTimezone
         NoTimezoneChange=[bool]$NoTimezoneChange
+        ProgressMessages=[bool]$ProgressMessages
     }
     $record | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath (Join-Path $PSScriptRoot 'launch.json') -Encoding UTF8
     if ($LaunchCLI) { return 23 }
@@ -48,6 +49,8 @@ function Invoke-GuardLaunch([switch]$LaunchCLI, [string[]]$CliArguments, [string
     Assert ($result.ExitCode -eq 0) "Desktop tray invocation accepts absent CLI arguments: $($result.Error)"
     Assert ($null -ne $result.Record -and -not $result.Record.CLI -and $result.Record.ArgumentCount -eq 0) 'Desktop receives no phantom argument'
     Write-Host 'PASS: Desktop tray entry accepts omitted CLI arguments'
+    $result=Run-Entry 'sync-guard.ps1' @('-LaunchClaude','-ProgressMessages')
+    Assert ($result.ExitCode -eq 0 -and $result.Record.ProgressMessages -and $result.Record.ArgumentCount -eq 0) 'GUI progress flag reaches the runtime without becoming a Claude argument'
 
     $result=Run-Entry 'sync-guard.ps1' @('-LaunchClaude','-NoTimezoneChange','-TargetTimezone','Georgian Standard Time')
     Assert ($result.ExitCode -eq 0) 'Desktop accepts timezone switches'
@@ -73,6 +76,23 @@ function Invoke-GuardLaunch([switch]$LaunchCLI, [string[]]$CliArguments, [string
     Assert ($result.ExitCode -eq 23 -and $result.Record.ArgumentCount -eq 5) 'dedicated native CLI entry preserves all arguments and exit code'
     for ($i=0;$i -lt $values.Count;$i++) { Assert ($result.Record.Arguments[$i] -ceq $values[$i]) "dedicated CLI argument $i survives the actual script" }
     Write-Host 'PASS: complete native CLI entry preserves flags, spaces, empty strings, quotes and trailing backslashes'
+    'function Invoke-GuardLaunch { throw "GUARD_TEST_FAILURE" }' | Set-Content -LiteralPath (Join-Path $testDirectory 'guard-runtime.ps1') -Encoding UTF8
+    $result=Run-Entry 'sync-guard.ps1' @('-LaunchClaude','-ProgressMessages')
+    Assert ($result.ExitCode -eq 1 -and $result.Error.Contains('[ClaudeGuardError]GUARD_TEST_FAILURE')) 'GUI errors are distinguishable from inherited Claude warnings'
+    $result=Run-Entry 'sync-guard.ps1' @('-LaunchClaude')
+    Assert ($result.ExitCode -eq 1 -and $result.Error.Contains('GUARD_TEST_FAILURE') -and -not $result.Error.Contains('[ClaudeGuardError]')) 'terminal errors remain plain text'
+    Copy-Item -LiteralPath "$root\setup-firewall.ps1" -Destination $testDirectory
+    @'
+function Invoke-GuardElevation([string]$ScriptPath,[string]$ExtraArguments) {
+    @{Arguments=$ExtraArguments} | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $PSScriptRoot 'launch.json') -Encoding UTF8
+    return 23
+}
+'@ | Set-Content -LiteralPath (Join-Path $testDirectory 'guard-common.ps1') -Encoding UTF8
+    $result=Run-Entry 'setup-firewall.ps1' @('-NonInteractive')
+    Assert ($result.ExitCode -eq 23 -and $result.Record.Arguments -notmatch 'PauseAfterElevation') 'unattended setup preserves exit code without waiting for input'
+    $result=Run-Entry 'setup-firewall.ps1' @('-NonInteractive','-ConsoleSetup')
+    Assert ($result.ExitCode -eq 23 -and $result.Record.Arguments -match 'PauseAfterElevation') 'manual setup keeps the elevated result visible and preserves failure exit code'
+    Write-Host 'PASS: manual setup retains elevated results; unattended setup never requests a key'
 } finally {
     $resolved=[IO.Path]::GetFullPath($testDirectory)
     $temporaryRoot=[IO.Path]::GetFullPath($env:TEMP).TrimEnd('\') + '\'

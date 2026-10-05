@@ -4,6 +4,7 @@ param(
     [switch]$LaunchCLI,
     [string]$TargetTimezone,
     [switch]$NoTimezoneChange,
+    [switch]$ProgressMessages,
     [string[]]$CliArguments
 )
 $ErrorActionPreference = 'Stop'
@@ -16,7 +17,12 @@ if ($MyInvocation.InvocationName -ne '.') {
         # Remove absent values while preserving real empty-string CLI arguments.
         $forwarded=@(@($CliArguments) + @($args) | Where-Object { $null -ne $_ })
         if (-not $LaunchCLI -and $forwarded.Count) { throw 'Desktop launch does not accept CLI arguments.' }
-        $result = Invoke-GuardLaunch -LaunchCLI:$LaunchCLI -CliArguments $forwarded -TargetTimezone $TargetTimezone -NoTimezoneChange:$NoTimezoneChange
+        $result = Invoke-GuardLaunch -LaunchCLI:$LaunchCLI -CliArguments $forwarded -TargetTimezone $TargetTimezone -NoTimezoneChange:$NoTimezoneChange -ProgressMessages:$ProgressMessages
         exit $result
-    } catch { [Console]::Error.WriteLine($_.Exception.Message); exit 1 }
+    } catch {
+        $message=$_.Exception.Message
+        if ($ProgressMessages) { $message='[ClaudeGuardError]'+$message.Replace("`r",' ').Replace("`n",' ') }
+        [Console]::Error.WriteLine($message)
+        exit 1
+    }
 }
