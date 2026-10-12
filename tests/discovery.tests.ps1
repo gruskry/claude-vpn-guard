@@ -18,6 +18,8 @@ try {
     function Get-Command { param($Name,$CommandType,$ErrorAction); $null }
     $script:runningClaude=@()
     function Get-Process { param($Name,$ErrorAction); $script:runningClaude }
+    $script:services=@()
+    function Get-CimInstance { param($ClassName,$Filter,$ErrorAction); $script:services }
     $inventory=Get-GuardInventory
     # Hosted Windows runners can expose TEMP through a short (8.3) path.
     # Inventory intentionally expands that alias to the executable's full path.
@@ -60,6 +62,19 @@ try {
     Assert ($inventory.Programs -contains $futureCli -and $inventory.Programs.Count -eq 8) 'signed running Claude from a new layout is enrolled once'
     Assert ($inventory.DesktopPaths -notcontains $futureCli) 'enrolled CLI is not offered as Desktop'
     $script:runningClaude=@()
+    # The Cowork VM egresses through its service binary, wherever it is installed.
+    $serviceDirectory=Join-Path $testDirectory 'Program Files\Claude Service'
+    New-Item -ItemType Directory -Path $serviceDirectory -Force | Out-Null
+    $serviceExe=Join-Path $serviceDirectory 'cowork-svc.exe'; [IO.File]::WriteAllText($serviceExe,'service fixture')
+    $serviceExe=(Get-Item -LiteralPath $serviceExe).FullName
+    $otherExe=Join-Path $serviceDirectory 'claude-helper.exe'; [IO.File]::WriteAllText($otherExe,'service fixture')
+    $otherExe=(Get-Item -LiteralPath $otherExe).FullName
+    $script:services=@([pscustomobject]@{PathName="`"$serviceExe`" --service"},[pscustomobject]@{PathName="$otherExe -k netsvcs"},[pscustomobject]@{PathName='relative\cowork-svc.exe'})
+    function Test-GuardAnthropicSignature([string]$Path) { $Path -eq $serviceExe }
+    $inventory=Get-GuardInventory
+    Assert ($inventory.Programs -contains $serviceExe) ("signed Cowork service binary is covered; actual="+(@($inventory.Programs) -join '; '))
+    Assert ($inventory.Programs -notcontains $otherExe -and $inventory.Programs.Count -eq 8) 'unsigned and relative service paths are not enrolled'
+    $script:services=@()
     # A junctioned CLI folder is covered under both the link and the resolved path.
     $linkedStore=Join-Path $testDirectory 'Moved Profile\bin'
     New-Item -ItemType Directory -Path $linkedStore -Force | Out-Null

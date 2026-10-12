@@ -154,6 +154,18 @@ function Get-GuardRunningClaudePaths([string[]]$Known) {
         if (Test-GuardAnthropicSignature $path) { $path }
     }
 }
+function Get-GuardServicePaths {
+    # Cowork's VM reaches the network through a user-mode TCP/IP stack in its
+    # LocalSystem service, so every VM connection is a socket of that binary.
+    # Service binaries can be read without administrator rights, unlike the
+    # path of a running service process.
+    foreach ($service in @(Get-CimInstance Win32_Service -Filter "PathName LIKE '%claude%' OR PathName LIKE '%cowork%' OR PathName LIKE '%anthropic%'" -ErrorAction Stop)) {
+        $command="$($service.PathName)".Trim()
+        $path=if ($command.StartsWith('"')) { $command.Substring(1).Split('"')[0] }
+            elseif ($command -match '^(.+?\.exe)(\s|$)') { $Matches[1] } else { $command }
+        if ($path -and [IO.Path]::IsPathRooted($path) -and (Test-Path -LiteralPath $path -PathType Leaf) -and (Test-GuardAnthropicSignature $path)) { [IO.Path]::GetFullPath($path) }
+    }
+}
 function Get-GuardInventory {
     $programs = New-Object 'System.Collections.Generic.List[string]'
     $packages = @()
@@ -202,6 +214,7 @@ function Get-GuardInventory {
     # A running Anthropic-signed Claude binary is enrolled wherever it lives,
     # so a new installation layout gets rules instead of blocking every launch.
     foreach ($path in @(Get-GuardRunningClaudePaths $programs.ToArray())) { $programs.Add($path) }
+    foreach ($path in @(Get-GuardServicePaths)) { $programs.Add($path) }
     foreach ($dataRoot in @("$env:LOCALAPPDATA\Claude", "$env:APPDATA\Claude")) {
         if (-not (Test-Path -LiteralPath $dataRoot -PathType Container)) { continue }
         if (Test-Path -LiteralPath (Join-Path $dataRoot 'Claude.exe') -PathType Leaf) {
