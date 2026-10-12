@@ -24,7 +24,16 @@ function Get-GuardVpnAdapter([string]$PinnedGuid) {
     }
     $vpn
 }
-function Get-GuardBlockedAdapters($Vpn) {
+function Get-GuardPinnedVpnAdapter([string]$PinnedGuid) {
+    # Background refresh only: identify the already pinned tunnel by GUID without
+    # requiring it to be connected. It never selects or repins a VPN, so rules
+    # can still be added for new executables and adapters while the VPN is down.
+    if (-not $PinnedGuid) { throw 'No pinned VPN. Run setup-firewall.cmd while the VPN is connected.' }
+    $pinned=@(Get-GuardNetworkAdapters | Where-Object { [guid]$_.InterfaceGuid -eq [guid]$PinnedGuid })
+    if ($pinned.Count) { return $pinned[0] }
+    [pscustomobject]@{Name=$null;InterfaceGuid=([guid]$PinnedGuid).ToString('B');ifIndex=-1;Status='Not Present'}
+}
+function Get-GuardBlockedAdapters($Vpn, [switch]$AllowVpnDown) {
     $adapters=@(Get-GuardNetworkAdapters)
     # Hidden device inventory includes WAN miniports and switch internals without
     # IP interfaces. Windows Firewall cannot bind rules to those device aliases.
@@ -33,7 +42,7 @@ function Get-GuardBlockedAdapters($Vpn) {
     $interfaces=@(Get-NetIPInterface -ErrorAction Stop)
     $indices=@($interfaces | ForEach-Object { $_.InterfaceIndex } | Sort-Object -Unique)
     $ipv4Indices=@($interfaces | Where-Object { "$($_.AddressFamily)" -eq 'IPv4' } | ForEach-Object { $_.InterfaceIndex } | Sort-Object -Unique)
-    if ($indices -notcontains $Vpn.ifIndex) { throw 'The VPN IP interface disappeared during discovery. Reconnect the VPN and retry.' }
+    if (-not $AllowVpnDown -and $indices -notcontains $Vpn.ifIndex) { throw 'The VPN IP interface disappeared during discovery. Reconnect the VPN and retry.' }
     # Installed non-NDIS tunnel interfaces, including Teredo, can temporarily
     # disappear from the IP inventory. WAN miniports also have type 131, but
     # expose a driver description and cannot be covered without an IP interface.

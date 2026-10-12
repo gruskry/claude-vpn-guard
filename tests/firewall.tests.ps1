@@ -86,6 +86,17 @@ Invoke-GuardFirewallSetup
 Assert ($script:rules.Count -eq 4 -and $script:rules.Name -notcontains 'Claude-VPN-Guard-Block-old') 'successful swap removes previous generation'
 Assert ($script:events.IndexOf('commit') -lt $script:events.IndexOf('remove:Claude-VPN-Guard-Block-old')) 'commit precedes old removal'
 Write-Host 'PASS: complete effective generation is committed before removal'
+Reset-Fixture
+$script:pinnedLookups=0
+$pinnedGuid='{11111111-1111-1111-1111-111111111111}'
+function Get-GuardPinnedVpnAdapter([string]$PinnedGuid) { $script:pinnedLookups++; [pscustomobject]@{Name=$null;InterfaceGuid=$PinnedGuid;ifIndex=-1;Status='Not Present'} }
+function Get-GuardVpnAdapter { throw 'route-based VPN selection must not run during background refresh' }
+function Assert-GuardNoProxy { throw 'proxy policy belongs to interactive setup' }
+Invoke-GuardFirewallSetup -VpnGuid $pinnedGuid -Background
+Assert ($script:pinnedLookups -eq 2 -and $script:state.VpnGuid -eq $pinnedGuid -and $script:rules.Count -eq 4 -and $script:rules.Name -notcontains 'Claude-VPN-Guard-Block-old') 'background refresh keeps the pinned VPN and replaces rules while the VPN is disconnected'
+function Get-GuardVpnAdapter { [pscustomobject]@{Name='Tunnel';InterfaceGuid='{11111111-1111-1111-1111-111111111111}';ifIndex=4} }
+function Assert-GuardNoProxy { }
+Write-Host 'PASS: background refresh never repins and works while the VPN is down'
 $ipv6Only=[pscustomobject]@{Name='Teredo';InterfaceGuid='ipv6-1';Status='Up';IpInterfacePresent=$true;Ipv4Present=$false}
 $ipv6Specifications=@(Get-GuardSpecifications (Get-GuardInventory) @($ipv6Only))
 Assert ($ipv6Specifications.Count -eq 2 -and @($ipv6Specifications | Where-Object { $_.Alias -ne 'Any' -or $_.RemoteAddress -ne '::-ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff' }).Count -eq 0) 'IPv6-only adapters use mandatory app/package IPv6 blocks without unstable alias bindings'

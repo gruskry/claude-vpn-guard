@@ -14,8 +14,8 @@ function Invoke-GuardElevation([string]$ScriptPath, [string]$ExtraArguments) {
     $process = Start-Process -FilePath $shell -Verb RunAs -Wait -PassThru -ArgumentList "-NoProfile -NonInteractive -ExecutionPolicy Bypass -File `"$ScriptPath`" $ExtraArguments" -ErrorAction Stop
     return $process.ExitCode
 }
-function Get-GuardAdapters($Vpn) {
-    if ($Vpn) { return @(Get-GuardBlockedAdapters $Vpn) }
+function Get-GuardAdapters($Vpn, [switch]$AllowVpnDown) {
+    if ($Vpn) { return @(Get-GuardBlockedAdapters $Vpn -AllowVpnDown:$AllowVpnDown) }
     @(Get-GuardNetworkAdapters | Where-Object { $_.HardwareInterface -eq $true })
 }
 function Get-GuardRules([string]$PolicyStore='PersistentStore') {
@@ -357,13 +357,10 @@ function Assert-GuardCoverage($Specifications, [string[]]$RuleNames, [switch]$Du
     }
 }
 function Get-GuardSetupResultPath { Join-Path $env:ProgramData 'ClaudeVPNGuard\setup-result.json' }
-function Save-GuardAdministratorJson([string]$Path, $Data) {
-    $path=$Path
-    $directory = Split-Path $path -Parent
-    if (-not (Test-Path -LiteralPath $directory)) { New-Item -ItemType Directory -Path $directory -Force -ErrorAction Stop | Out-Null }
-    foreach ($target in @($directory,$path)) {
-        if ((Test-Path -LiteralPath $target) -and ((Get-Item -LiteralPath $target -Force -ErrorAction Stop).Attributes -band [IO.FileAttributes]::ReparsePoint)) { throw 'Guard state path must not be a link or junction.' }
-    }
+function Initialize-GuardAdministratorDirectory([string]$Directory) {
+    # Administrators and SYSTEM only may write: elevated Guard code reads from here.
+    if (-not (Test-Path -LiteralPath $Directory)) { New-Item -ItemType Directory -Path $Directory -Force -ErrorAction Stop | Out-Null }
+    if ((Get-Item -LiteralPath $Directory -Force -ErrorAction Stop).Attributes -band [IO.FileAttributes]::ReparsePoint) { throw 'Guard state path must not be a link or junction.' }
     $acl = New-Object Security.AccessControl.DirectorySecurity
     $acl.SetAccessRuleProtection($true, $false)
     $acl.SetOwner([Security.Principal.SecurityIdentifier]'S-1-5-32-544')
@@ -371,7 +368,12 @@ function Save-GuardAdministratorJson([string]$Path, $Data) {
         $rule = New-Object Security.AccessControl.FileSystemAccessRule ([Security.Principal.SecurityIdentifier]$entry[0]), $entry[1], 'ContainerInherit,ObjectInherit', 'None', 'Allow'
         $acl.AddAccessRule($rule)
     }
-    Set-Acl -LiteralPath $directory -AclObject $acl -ErrorAction Stop
+    Set-Acl -LiteralPath $Directory -AclObject $acl -ErrorAction Stop
+}
+function Save-GuardAdministratorJson([string]$Path, $Data) {
+    $path=$Path
+    Initialize-GuardAdministratorDirectory (Split-Path $path -Parent)
+    if ((Test-Path -LiteralPath $path) -and ((Get-Item -LiteralPath $path -Force -ErrorAction Stop).Attributes -band [IO.FileAttributes]::ReparsePoint)) { throw 'Guard state path must not be a link or junction.' }
     $temporary = "$path.$([guid]::NewGuid().ToString('N')).tmp"
     try {
         $Data | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $temporary -Encoding UTF8 -ErrorAction Stop

@@ -1,7 +1,7 @@
 [Setup]
 AppName=Claude VPN Guard
-AppVersion=1.4.2
-VersionInfoVersion=1.4.2.0
+AppVersion=1.4.3
+VersionInfoVersion=1.4.3.0
 AppPublisher=Dzmitry Danilau (gruskry)
 AppPublisherURL=https://github.com/gruskry/claude-vpn-guard
 DefaultDirName={autopf}\Claude VPN Guard
@@ -26,6 +26,7 @@ Source: "config.json"; DestDir: "{app}"; Flags: onlyifdoesntexist
 Source: "setup-firewall.ps1"; DestDir: "{app}"; Flags: ignoreversion
 Source: "guard-common.ps1"; DestDir: "{app}"; Flags: ignoreversion
 Source: "guard-network.ps1"; DestDir: "{app}"; Flags: ignoreversion
+Source: "guard-autorefresh.ps1"; DestDir: "{app}"; Flags: ignoreversion
 Source: "guard-privacy.ps1"; DestDir: "{app}"; Flags: ignoreversion
 Source: "guard-diagnostics.ps1"; DestDir: "{app}"; Flags: ignoreversion
 Source: "guard-runtime.ps1"; DestDir: "{app}"; Flags: ignoreversion
@@ -65,6 +66,7 @@ var
 begin
   ExtractTemporaryFile('guard-common.ps1');
   ExtractTemporaryFile('guard-network.ps1');
+  ExtractTemporaryFile('guard-autorefresh.ps1');
   ExtractTemporaryFile('config.json');
   ExtractTemporaryFile('setup-firewall.ps1');
   if FileExists(ExpandConstant('{app}\config.json')) then

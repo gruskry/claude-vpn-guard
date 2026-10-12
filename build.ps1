@@ -34,7 +34,7 @@ try {
         & $SignToolPath verify /pa (Join-Path $root 'Output\ClaudeVPNGuard_Installer.exe')
         if ($LASTEXITCODE -ne 0) { throw 'Installer signature verification failed.' }
     }
-    $files=@('Claude (VPN Guard).exe','config.json','guard-common.ps1','guard-network.ps1','guard-privacy.ps1','guard-diagnostics.ps1','guard-runtime.ps1','check-protection.ps1','sync-guard.ps1','launch-cli.ps1','setup-firewall.ps1','setup-firewall.cmd','remove-firewall.cmd','enable-dns-leak-protection.ps1','enable-dns-leak-protection.cmd','restore-dns.cmd','launch-guarded.cmd','launch-cli-guarded.cmd','create-desktop-shortcut.ps1','create-desktop-shortcut.cmd','README.md','assets')
+    $files=@('Claude (VPN Guard).exe','config.json','guard-common.ps1','guard-network.ps1','guard-autorefresh.ps1','guard-privacy.ps1','guard-diagnostics.ps1','guard-runtime.ps1','check-protection.ps1','sync-guard.ps1','launch-cli.ps1','setup-firewall.ps1','setup-firewall.cmd','remove-firewall.cmd','enable-dns-leak-protection.ps1','enable-dns-leak-protection.cmd','restore-dns.cmd','launch-guarded.cmd','launch-cli-guarded.cmd','create-desktop-shortcut.ps1','create-desktop-shortcut.cmd','README.md','assets')
     $zip=Join-Path $root 'claude-vpn-guard-windows.zip'
     Compress-Archive -LiteralPath $files -DestinationPath $zip -Force
     # Check the complete archive against current files, including the executable.

@@ -8,8 +8,8 @@ using System.Windows.Forms;
 using System.Web.Script.Serialization;
 using System.Collections.Generic;
 
-[assembly: System.Reflection.AssemblyVersion("1.4.2.0")]
-[assembly: System.Reflection.AssemblyFileVersion("1.4.2.0")]
+[assembly: System.Reflection.AssemblyVersion("1.4.3.0")]
+[assembly: System.Reflection.AssemblyFileVersion("1.4.3.0")]
 
 namespace ClaudeGuard
 {
