@@ -1,6 +1,7 @@
 $ErrorActionPreference='Stop'
 . "$(Split-Path $PSScriptRoot -Parent)\guard-runtime.ps1"
 function Assert($Condition,$Message) { if (-not $Condition) { throw "FAIL: $Message" } }
+$script:GuardShutdownConfirmSeconds=0
 $inventory=[pscustomobject]@{Programs=@('C:\Claude\Claude.exe','C:\Claude\updated\Claude.exe')}
 $first=[pscustomobject]@{Id=101;Path='C:\Claude\Claude.exe';ProcessName='Claude';HasExited=$false}
 $second=[pscustomobject]@{Id=102;Path='C:\Claude\updated\Claude.exe';ProcessName='Claude';HasExited=$false}
@@ -21,6 +22,20 @@ try { Stop-GuardRunningProcesses $inventory $started; throw 'unexpected success'
 catch { Assert ($_.Exception.Message -ne 'unexpected success') 'partial provider error is reported' }
 Assert ($script:stopped -contains 101) 'partial enumeration results are retained for shutdown'
 Write-Host 'PASS: shutdown retains partial provider results'
+$script:killed=@{}
+$child=[pscustomobject]@{Id=106;Path='C:\Claude\Claude.exe';ProcessName='Claude'}
+$child | Add-Member -MemberType ScriptProperty -Name HasExited -Value { [bool]$script:killed[106] }
+function Get-Process { [CmdletBinding()]param(); if (-not $script:killed[106]) { $child } }
+function Stop-GuardProcessTree($Process) { if ($Process.Id -eq 106) { $script:killed[106]=$true } }
+$script:GuardShutdownConfirmSeconds=2
+Stop-GuardRunningProcesses $inventory $started
+Assert ($script:killed[106]) 'a known process that exits after the kill completes shutdown'
+$script:GuardShutdownConfirmSeconds=0
+function Stop-GuardProcessTree($Process) { }
+$script:killed=@{}
+try { Stop-GuardRunningProcesses $inventory $started; throw 'unexpected success' }
+catch { Assert ($_.Exception.Message -like '*106 is still running*') 'a surviving known process after a reported kill is a shutdown failure' }
+Write-Host 'PASS: shutdown confirms that no known process survives'
 $exited=[pscustomobject]@{Id=104;ProcessName='Claude';HasExited=$true}
 $exited | Add-Member -MemberType ScriptProperty -Name Path -Value { throw 'process has exited' }
 $racing=[pscustomobject]@{Id=105;ProcessName='Claude';Path=$null}

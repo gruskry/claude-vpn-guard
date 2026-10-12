@@ -3,6 +3,7 @@
 . "$PSScriptRoot\guard-privacy.ps1"
 . "$PSScriptRoot\guard-diagnostics.ps1"
 $script:GuardBlockedCountries = @('BY','RU','IR','KP','SY','CU')
+$script:GuardShutdownConfirmSeconds = 5
 $script:GuardTimezoneMap = @{
     'Asia/Tbilisi'='Georgian Standard Time'; 'Europe/Warsaw'='Central European Standard Time'
     'Europe/Berlin'='W. Europe Standard Time'; 'Europe/Paris'='Romance Standard Time'
@@ -147,6 +148,16 @@ function Stop-GuardRunningProcesses($Inventory, $StartedProcess) {
         try { if (-not $process.HasExited) { Stop-GuardProcessTree $process } }
         catch { $failures.Add("Claude PID $($process.Id) could not be stopped.") }
     }
+    # taskkill /T can fail on a child after its parent exited, and processes may
+    # start between the snapshot and the kill: confirm that none remain.
+    $deadline=[DateTime]::UtcNow.AddSeconds($script:GuardShutdownConfirmSeconds)
+    while ($true) {
+        $remaining=@(@((Get-GuardProcessSnapshot $Inventory).Processes) | Where-Object { -not (Test-GuardProcessExited $_) })
+        if (-not $remaining.Count -or [DateTime]::UtcNow -ge $deadline) { break }
+        foreach ($process in $remaining) { try { Stop-GuardProcessTree $process } catch { } }
+        Start-Sleep -Milliseconds 250
+    }
+    foreach ($process in $remaining) { $failures.Add("Claude PID $($process.Id) is still running.") }
     if ($failures.Count) { throw (($failures.ToArray() -join ' ')+' Close remaining Claude windows immediately.') }
 }
 function Write-GuardLaunchProgress([string]$Stage, [bool]$Enabled) {

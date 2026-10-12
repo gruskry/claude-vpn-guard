@@ -45,6 +45,43 @@ namespace ClaudeGuard {
     }
     [ClaudeGuard.PackageIdentity]::Sid($FamilyName)
 }
+function Get-GuardFinalPath([string]$Path) {
+    if (-not ('ClaudeGuard.FinalPath' -as [type])) {
+        Add-Type -TypeDefinition @'
+using System;
+using System.ComponentModel;
+using System.Runtime.InteropServices;
+using System.Text;
+using Microsoft.Win32.SafeHandles;
+namespace ClaudeGuard {
+    public static class FinalPath {
+        [DllImport("kernel32.dll", CharSet=CharSet.Unicode, SetLastError=true)]
+        static extern SafeFileHandle CreateFileW(string name, uint access, uint share, IntPtr security, uint disposition, uint flags, IntPtr template);
+        [DllImport("kernel32.dll", CharSet=CharSet.Unicode, SetLastError=true)]
+        static extern uint GetFinalPathNameByHandleW(SafeFileHandle file, StringBuilder path, uint length, uint flags);
+        public static string Get(string path) {
+            // No access rights and full sharing: attributes only, never blocks an update.
+            using (SafeFileHandle handle = CreateFileW(path, 0, 7, IntPtr.Zero, 3, 0x02000000, IntPtr.Zero)) {
+                if (handle.IsInvalid) throw new Win32Exception(Marshal.GetLastWin32Error());
+                StringBuilder buffer = new StringBuilder(1024);
+                uint length = GetFinalPathNameByHandleW(handle, buffer, (uint)buffer.Capacity, 0);
+                if (length >= buffer.Capacity) {
+                    buffer = new StringBuilder((int)length + 1);
+                    length = GetFinalPathNameByHandleW(handle, buffer, (uint)buffer.Capacity, 0);
+                }
+                if (length == 0 || length >= buffer.Capacity) throw new Win32Exception(Marshal.GetLastWin32Error());
+                string result = buffer.ToString();
+                if (result.StartsWith(@"\\?\UNC\", StringComparison.Ordinal)) return @"\\" + result.Substring(8);
+                if (result.StartsWith(@"\\?\", StringComparison.Ordinal)) return result.Substring(4);
+                return result;
+            }
+        }
+    }
+}
+'@
+    }
+    [ClaudeGuard.FinalPath]::Get($Path)
+}
 function Get-GuardCustomDesktopPath {
     $path=Join-Path $PSScriptRoot 'config.json'
     if (-not (Test-Path -LiteralPath $path)) { return $null }
@@ -92,6 +129,31 @@ function Get-GuardRunningProcesses($Inventory) {
     if (@($snapshot.Errors).Count) { throw ($snapshot.Errors -join ' ') }
     @($snapshot.Processes)
 }
+$script:GuardSignatureCache=@{}
+function Test-GuardAnthropicSignature([string]$Path) {
+    try { $file=Get-Item -LiteralPath $Path -Force -ErrorAction Stop } catch { return $false }
+    # Verification hashes the whole binary; a replaced file changes size or time.
+    $key="$($file.FullName)|$($file.Length)|$($file.LastWriteTimeUtc.Ticks)"
+    if ($script:GuardSignatureCache.ContainsKey($key)) { return $script:GuardSignatureCache[$key] }
+    $trusted=$false
+    try {
+        $signature=Get-AuthenticodeSignature -LiteralPath $file.FullName -ErrorAction Stop
+        $trusted=("$($signature.Status)" -eq 'Valid' -and $null -ne $signature.SignerCertificate -and
+            $signature.SignerCertificate.GetNameInfo([Security.Cryptography.X509Certificates.X509NameType]::SimpleName,$false) -ceq 'Anthropic, PBC')
+    } catch { $trusted=$false }
+    $script:GuardSignatureCache[$key]=$trusted
+    return $trusted
+}
+function Get-GuardRunningClaudePaths([string[]]$Known) {
+    # Inaccessible or unsigned Claude processes are not enrolled; the process
+    # snapshot still reports them and blocks launch.
+    $knownPaths=@($Known | ForEach-Object { [IO.Path]::GetFullPath($_) })
+    foreach ($process in @(Get-Process -Name 'claude' -ErrorAction SilentlyContinue)) {
+        try { $path=$process.Path } catch { continue }
+        if (-not $path -or $knownPaths -contains [IO.Path]::GetFullPath($path)) { continue }
+        if (Test-GuardAnthropicSignature $path) { $path }
+    }
+}
 function Get-GuardInventory {
     $programs = New-Object 'System.Collections.Generic.List[string]'
     $packages = @()
@@ -111,7 +173,6 @@ function Get-GuardInventory {
     $patterns = @(
         "$env:LOCALAPPDATA\Programs\Claude\Claude.exe", "$env:LOCALAPPDATA\Claude\Claude.exe",
         "$env:LOCALAPPDATA\Claude\app-*\*.exe", "$env:APPDATA\Claude\Claude.exe",
-        "$env:APPDATA\Claude\claude-code\*\claude.exe", "$env:LOCALAPPDATA\Claude-3p\claude-code\*\claude.exe",
         "$env:USERPROFILE\.local\bin\claude.exe", "$env:USERPROFILE\.claude\local\claude.exe",
         "$env:APPDATA\npm\node_modules\@anthropic-ai\claude-code-*\claude.exe",
         "$env:APPDATA\npm\node_modules\@anthropic-ai\claude-code\node_modules\@anthropic-ai\claude-code-*\claude.exe"
@@ -131,6 +192,16 @@ function Get-GuardInventory {
             foreach ($file in @(Get-ChildItem -LiteralPath $folder -Filter '*.exe' -Recurse -File -ErrorAction Stop)) { $programs.Add($file.FullName) }
         }
     }
+    # Desktop-managed Claude Code roots hold only downloaded CLI builds. Their
+    # layout changes between releases (claude-code\<version>\<build>\claude.exe).
+    foreach ($folder in @("$env:APPDATA\Claude\claude-code", "$env:LOCALAPPDATA\Claude-3p\claude-code")) {
+        if (Test-Path -LiteralPath $folder -PathType Container) {
+            foreach ($file in @(Get-ChildItem -LiteralPath $folder -Filter 'claude.exe' -Recurse -File -ErrorAction Stop)) { $programs.Add($file.FullName) }
+        }
+    }
+    # A running Anthropic-signed Claude binary is enrolled wherever it lives,
+    # so a new installation layout gets rules instead of blocking every launch.
+    foreach ($path in @(Get-GuardRunningClaudePaths $programs.ToArray())) { $programs.Add($path) }
     foreach ($dataRoot in @("$env:LOCALAPPDATA\Claude", "$env:APPDATA\Claude")) {
         if (-not (Test-Path -LiteralPath $dataRoot -PathType Container)) { continue }
         if (Test-Path -LiteralPath (Join-Path $dataRoot 'Claude.exe') -PathType Leaf) {
@@ -161,6 +232,14 @@ function Get-GuardInventory {
             @($packages | Where-Object { $path.StartsWith($_.Root.TrimEnd('\') + '\', [StringComparison]::OrdinalIgnoreCase) }).Count -gt 0
         )
     } | Sort-Object -Unique)
+    # Through a junction or symlink, Process.Path reports the link path while the
+    # firewall matches the resolved image path: cover both identities.
+    $resolved=foreach ($path in $nativePaths) {
+        try { $final=Get-GuardFinalPath $path }
+        catch { if (Test-Path -LiteralPath $path -PathType Leaf) { throw }; continue }
+        if ($final -ine $path) { $final }
+    }
+    $nativePaths=@(@($nativePaths) + @($resolved) | Sort-Object -Unique)
     [pscustomobject]@{ Programs=$nativePaths; DesktopPaths=$desktop; PreferredDesktop=$custom; Packages=@($packages); CliPath=$cliPath }
 }
 function Assert-GuardProfiles {

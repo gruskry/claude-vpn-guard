@@ -148,9 +148,12 @@ namespace ClaudeGuard {
 }
 '@
     }
-    $directories=@($Inventory.Programs | ForEach-Object {
+    # Desktop unpacks new Claude Code builds into sibling version folders, which
+    # a watcher on the current build folder never sees.
+    $roots=@("$env:APPDATA\Claude\claude-code", "$env:LOCALAPPDATA\Claude-3p\claude-code")
+    $directories=@(@($Inventory.Programs | ForEach-Object {
         $directory=Split-Path $_ -Parent
         if ((Split-Path $directory -Leaf) -like 'app-*') { Split-Path $directory -Parent } else { $directory }
-    } | Sort-Object -Unique)
+    }) + $roots | Sort-Object -Unique)
     New-Object ClaudeGuard.ChangeMonitor (,[string[]]$directories)
 }

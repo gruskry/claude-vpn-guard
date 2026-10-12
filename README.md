@@ -9,36 +9,38 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/gruskry/claude-vpn-guard/releases/tag/v1.4.0"><img src="https://img.shields.io/badge/release-v1.4.0-238636" alt="Release v1.4.0"></a>
+  <a href="https://github.com/gruskry/claude-vpn-guard/releases/tag/v1.4.1"><img src="https://img.shields.io/badge/release-v1.4.1-238636" alt="Release v1.4.1"></a>
   <img src="https://img.shields.io/badge/Windows-x64-0078D4" alt="Windows x64">
   <img src="https://img.shields.io/badge/PowerShell-5.1-5391FE" alt="Windows PowerShell 5.1">
 </p>
 
 <p align="center">
-  <a href="https://github.com/gruskry/claude-vpn-guard/releases/download/v1.4.0/ClaudeVPNGuard_Installer.exe"><strong>Windows installer</strong></a>
+  <a href="https://github.com/gruskry/claude-vpn-guard/releases/download/v1.4.1/ClaudeVPNGuard_Installer.exe"><strong>Windows installer</strong></a>
   &nbsp; · &nbsp;
-  <a href="https://github.com/gruskry/claude-vpn-guard/releases/download/v1.4.0/claude-vpn-guard-windows.zip"><strong>Portable ZIP</strong></a>
+  <a href="https://github.com/gruskry/claude-vpn-guard/releases/download/v1.4.1/claude-vpn-guard-windows.zip"><strong>Portable ZIP</strong></a>
   &nbsp; · &nbsp;
-  <a href="https://github.com/gruskry/claude-vpn-guard/releases/tag/v1.4.0">Release notes</a>
+  <a href="https://github.com/gruskry/claude-vpn-guard/releases/tag/v1.4.1">Release notes</a>
   &nbsp; · &nbsp;
-  <a href="https://github.com/gruskry/claude-vpn-guard/releases/download/v1.4.0/SHA256SUMS.txt">SHA256 checksums</a>
+  <a href="https://github.com/gruskry/claude-vpn-guard/releases/download/v1.4.1/SHA256SUMS.txt">SHA256 checksums</a>
 </p>
 
 ---
 
 Guard detects the active internet VPN tunnel from local routes, pins its interface GUID, and installs Windows Defender Firewall outbound blocks on the other adapters exposed by the Windows IP stack for discovered native Claude executables. The tray and terminal launchers verify the tunnel and effective rules before starting Claude and monitor the session.
 
-> **v1.4.0 is the current release.** Guarded Claude CLI launch and isolated IPv4/IPv6 blocking were verified on Windscribe WireGuard. Full DNS containment, real VPN disconnect/reconnect and installer install/remove acceptance remain unverified. See [verification results](#verification-results).
+> **v1.4.1 is the current release.** Guarded Claude CLI launch and isolated IPv4/IPv6 blocking were verified with v1.4.0 on Windscribe WireGuard; v1.4.1 changes executable discovery and shutdown and passed the isolated regression suites. Full DNS containment, real VPN disconnect/reconnect and installer install/remove acceptance remain unverified. See [verification results](#verification-results).
 
 [Quick start](#quick-start) · [Launchers](#launchers) · [Updates](#claude-updates) · [Settings](#settings) · [Privacy](#local-diagnostic-privacy) · [DNS](#optional-dns-over-https) · [Troubleshooting](#troubleshooting) · [Scope](#scope-and-limitations) · [Verification](#verification-results) · [Build](#build)
 
-## What's new in v1.4.0
+## What's new in v1.4.1
 
-- Fixed normal Desktop launches reporting `Desktop launch does not accept CLI arguments`.
-- Verified duplicate firewall coverage and safer replacement of existing rules.
-- Limited executable discovery to Claude installations; workspace and cache executables are excluded.
-- Normalized short Windows paths so installed executables are discovered once and Desktop remains selectable.
-- Added VPN-bound location checks, monitored launch, automatic rule refresh and targeted diagnostic cleanup.
+- Fixed `Unknown or inaccessible Claude PID` after reinstalling Claude: Claude Code builds that Desktop downloads into `claude-code\<version>\<build>\claude.exe` are now discovered at any folder depth.
+- A running `Claude.exe`/`claude.exe` with a valid Anthropic, PBC signature is detected automatically wherever it is installed and receives rules through the normal refresh.
+- Executables reached through junctions or symlinks are covered under both the link path and the resolved path.
+- New Claude Code version folders trigger immediate verification instead of waiting for the periodic check.
+- Shutdown confirms that no known Claude process survives and reports any that remain.
+
+v1.4.0: fixed Desktop launch arguments, verified duplicate firewall coverage, limited discovery to Claude installations, normalized short paths, added VPN-bound location checks, monitored launch, automatic rule refresh and targeted diagnostic cleanup.
 
 ## At a glance
 
@@ -69,14 +71,14 @@ Guard detects the active internet VPN tunnel from local routes, pins its interfa
 ### Installer
 
 1. Install Claude and connect your VPN.
-2. Download and run the **[Windows installer](https://github.com/gruskry/claude-vpn-guard/releases/download/v1.4.0/ClaudeVPNGuard_Installer.exe)**. Approve the administrator prompt.
+2. Download and run the **[Windows installer](https://github.com/gruskry/claude-vpn-guard/releases/download/v1.4.1/ClaudeVPNGuard_Installer.exe)**. Approve the administrator prompt.
 3. Start Claude through **Claude (VPN Guard)**. Close Claude to end the monitored session.
 
 Firewall setup must succeed before installation proceeds. Failures before the state commit retain the previous rules. A failed final verification retains the committed generation for repair and blocks guarded launch.
 
 ### Portable
 
-1. Download the **[portable ZIP](https://github.com/gruskry/claude-vpn-guard/releases/download/v1.4.0/claude-vpn-guard-windows.zip)** and extract the entire archive to a trusted folder.
+1. Download the **[portable ZIP](https://github.com/gruskry/claude-vpn-guard/releases/download/v1.4.1/claude-vpn-guard-windows.zip)** and extract the entire archive to a trusted folder.
 2. Run `setup-firewall.cmd` and approve the administrator prompt.
 3. Start `Claude (VPN Guard).exe` or `launch-guarded.cmd`.
 
@@ -115,7 +117,8 @@ Guard rediscovers Claude before every guarded launch. Network-address changes an
 
 - The installed Claude MSIX package.
 - Known Claude installation folders under `%LOCALAPPDATA%` and `%APPDATA%`, including versioned `app-*` folders. User workspaces, virtual environments and download caches under Claude data folders are excluded.
-- Native CLI installation paths and `claude.exe` on PATH.
+- Native CLI installation paths and `claude.exe` on PATH, including every build Claude Desktop downloads under `claude-code` (any version/build folder layout).
+- Any running `Claude.exe`/`claude.exe` with a valid Anthropic, PBC code signature, wherever it is installed. A new layout therefore gets rules through the normal refresh prompt instead of blocking launch. Unsigned or inaccessible Claude processes still block launch.
 
 For a custom installation, set `desktop_path` to the exact local `Claude.exe`. Its folder's executables are included. Relative paths, network shares and links/junctions are rejected. Update the setting if that custom executable itself moves.
 
@@ -137,7 +140,7 @@ If a driver is unrecognized, an explicit `-VpnGuid` selection is available. Insp
 
 ### Upgrading Guard
 
-Close Claude and the previous Guard session, connect the VPN, then install **v1.4.0** or replace the complete portable package. Installed settings are preserved. Version 1 firewall state is migrated after effective version 2 rules have been verified.
+Close Claude and the previous Guard session, connect the VPN, then install **v1.4.1** or replace the complete portable package. Installed settings are preserved. Version 1 firewall state is migrated after effective version 2 rules have been verified.
 
 The current package includes the fix for `Desktop launch does not accept CLI arguments` on a normal Desktop launch. Update the complete package if an older installation reports this error.
 
