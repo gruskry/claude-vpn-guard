@@ -9,30 +9,35 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/gruskry/claude-vpn-guard/releases/tag/v1.4.3"><img src="https://img.shields.io/badge/release-v1.4.3-238636" alt="Release v1.4.3"></a>
+  <a href="https://github.com/gruskry/claude-vpn-guard/releases/tag/v1.4.4"><img src="https://img.shields.io/badge/release-v1.4.4-238636" alt="Release v1.4.4"></a>
   <img src="https://img.shields.io/badge/Windows-x64-0078D4" alt="Windows x64">
   <img src="https://img.shields.io/badge/PowerShell-5.1-5391FE" alt="Windows PowerShell 5.1">
 </p>
 
 <p align="center">
-  <a href="https://github.com/gruskry/claude-vpn-guard/releases/download/v1.4.3/ClaudeVPNGuard_Installer.exe"><strong>Windows installer</strong></a>
+  <a href="https://github.com/gruskry/claude-vpn-guard/releases/download/v1.4.4/ClaudeVPNGuard_Installer.exe"><strong>Windows installer</strong></a>
   &nbsp; · &nbsp;
-  <a href="https://github.com/gruskry/claude-vpn-guard/releases/download/v1.4.3/claude-vpn-guard-windows.zip"><strong>Portable ZIP</strong></a>
+  <a href="https://github.com/gruskry/claude-vpn-guard/releases/download/v1.4.4/claude-vpn-guard-windows.zip"><strong>Portable ZIP</strong></a>
   &nbsp; · &nbsp;
-  <a href="https://github.com/gruskry/claude-vpn-guard/releases/tag/v1.4.3">Release notes</a>
+  <a href="https://github.com/gruskry/claude-vpn-guard/releases/tag/v1.4.4">Release notes</a>
   &nbsp; · &nbsp;
-  <a href="https://github.com/gruskry/claude-vpn-guard/releases/download/v1.4.3/SHA256SUMS.txt">SHA256 checksums</a>
+  <a href="https://github.com/gruskry/claude-vpn-guard/releases/download/v1.4.4/SHA256SUMS.txt">SHA256 checksums</a>
 </p>
 
 ---
 
 Guard detects the active internet VPN tunnel from local routes, pins its interface GUID, and installs Windows Defender Firewall outbound blocks on the other adapters exposed by the Windows IP stack for discovered native Claude executables. The tray and terminal launchers verify the tunnel and effective rules before starting Claude and monitor the session.
 
-> **v1.4.3 is the current release.** Guarded Claude CLI launch and isolated IPv4/IPv6 blocking were verified with v1.4.0 on Windscribe WireGuard; v1.4.1–v1.4.3 change discovery, shutdown and rule refresh and passed the isolated regression suites. Full DNS containment, real VPN disconnect/reconnect and installer install/remove acceptance remain unverified. See [verification results](#verification-results).
+> **v1.4.4 is the current release.** Guarded Claude CLI launch and isolated IPv4/IPv6 blocking were verified with v1.4.0 on Windscribe WireGuard; v1.4.1–v1.4.4 change discovery, shutdown and rule refresh and passed the isolated regression suites; automatic refresh of a new Claude Code build was verified live. Full DNS containment, real VPN disconnect/reconnect and installer install/remove acceptance remain unverified. See [verification results](#verification-results).
 
 [Quick start](#quick-start) · [Launchers](#launchers) · [Updates](#claude-updates) · [Settings](#settings) · [Privacy](#local-diagnostic-privacy) · [DNS](#optional-dns-over-https) · [Troubleshooting](#troubleshooting) · [Scope](#scope-and-limitations) · [Verification](#verification-results) · [Build](#build)
 
-## What's new in v1.4.3
+## What's new in v1.4.4
+
+- Fixed the tray's **Check firewall status** (broken since v1.4.0): `check-protection.ps1 -Json` returned text instead of JSON.
+- Fixed the automatic refresh status line in the protection check.
+
+v1.4.3:
 
 - Automatic rule refresh after Claude updates. Setup registers the scheduled task `ClaudeVPNGuard Auto Refresh`. It runs elevated under your account, without a stored password or window, for as long as you are signed in. When Claude's executables, Claude Code builds, the Cowork service or network adapters change, it verifies the rules and rebuilds them without an administrator prompt, even while the VPN is disconnected.
 - `check-protection.ps1` and the tray status show when automatic refresh last checked the rules.
@@ -80,14 +85,14 @@ v1.4.0: fixed Desktop launch arguments, verified duplicate firewall coverage, li
 ### Installer
 
 1. Install Claude and connect your VPN.
-2. Download and run the **[Windows installer](https://github.com/gruskry/claude-vpn-guard/releases/download/v1.4.3/ClaudeVPNGuard_Installer.exe)**. Approve the administrator prompt.
+2. Download and run the **[Windows installer](https://github.com/gruskry/claude-vpn-guard/releases/download/v1.4.4/ClaudeVPNGuard_Installer.exe)**. Approve the administrator prompt.
 3. Start Claude through **Claude (VPN Guard)**. Close Claude to end the monitored session.
 
 Firewall setup must succeed before installation proceeds. Failures before the state commit retain the previous rules. A failed final verification retains the committed generation for repair and blocks guarded launch.
 
 ### Portable
 
-1. Download the **[portable ZIP](https://github.com/gruskry/claude-vpn-guard/releases/download/v1.4.3/claude-vpn-guard-windows.zip)** and extract the entire archive to a trusted folder.
+1. Download the **[portable ZIP](https://github.com/gruskry/claude-vpn-guard/releases/download/v1.4.4/claude-vpn-guard-windows.zip)** and extract the entire archive to a trusted folder.
 2. Run `setup-firewall.cmd` and approve the administrator prompt.
 3. Start `Claude (VPN Guard).exe` or `launch-guarded.cmd`.
 
@@ -138,7 +143,7 @@ For a custom installation, set `desktop_path` to the exact local `Claude.exe`. I
 - starts at sign-in and is restarted every 15 minutes if it stopped;
 - watches Claude folders and network changes and compares the discovered executables every 30 seconds, with a full check every 10 minutes;
 - rebuilds the rules when an executable or adapter is not covered. It keeps the pinned VPN and never selects another one, so rules for new executables and adapters are added even while the VPN is disconnected;
-- runs only copies of its scripts in `%ProgramData%\ClaudeVPNGuarduto-refresh`, which only administrators can change. Changes to `config.json` reach that copy at the next setup or Guard repair.
+- runs only copies of its scripts in `%ProgramData%\ClaudeVPNGuard\auto-refresh`, which only administrators can change. Changes to `config.json` reach that copy at the next setup or Guard repair.
 
 If setup was approved with a different administrator account, the task is not created. Removal deletes the task and its copy. Status: `check-protection.ps1` or the tray's **Check firewall status**.
 
@@ -160,7 +165,7 @@ If a driver is unrecognized, an explicit `-VpnGuid` selection is available. Insp
 
 ### Upgrading Guard
 
-Close Claude and the previous Guard session, connect the VPN, then install **v1.4.3** or replace the complete portable package. Installed settings are preserved. Version 1 firewall state is migrated after effective version 2 rules have been verified.
+Close Claude and the previous Guard session, connect the VPN, then install **v1.4.4** or replace the complete portable package. Installed settings are preserved. Version 1 firewall state is migrated after effective version 2 rules have been verified.
 
 The current package includes the fix for `Desktop launch does not accept CLI arguments` on a normal Desktop launch. Update the complete package if an older installation reports this error.
 
@@ -281,6 +286,8 @@ Removal restores saved DNS settings before removing Guard rules. If restoration 
 ## Verification results
 
 The [Windows workflow](.github/workflows/windows.yml) runs regressions, builds the installer/ZIP and uploads checksums. Tag runs prepare a release draft. The isolated suites do not run `tests/live-policy.ps1`. On the tested Windscribe WireGuard machine, Windows verified 99 rules for ten installation executables and the Claude MSIX package. A native Claude CLI request through Guard returned the expected token with tools disabled, no files, no session persistence, and no timezone or DNS changes.
+
+Automatic refresh (v1.4.3) was checked on the same machine: after setup the S4U task ran elevated without a prompt, and a placeholder `claude.exe` added under `claude-code` received block rules about 20 seconds later; the new rule generation was committed and verified about one minute after the file appeared.
 
 An isolated IPv4 HTTPS test succeeded, returned a socket access-denied error while only the probe's VPN interface was blocked, and recovered after removing that block. A separate monitor test stopped the probe 4.39 seconds after its physical-interface rule was disabled. An IPv6 TCP attempt to a documentation address through non-VPN Teredo also received an explicit socket access-denied error under the probe policy. These are observations from that test machine; the VPN stayed connected and public IPv6 HTTPS through it was not tested.
 
